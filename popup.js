@@ -1,41 +1,68 @@
 /**
- * eBay UK Filter Pro — Popup Script
+ * BayBuddy — Popup Script
  *
- * Single toggle: hideCollectionOnly (default: true)
+ * Manages settings toggles for all features.
  * Persisted to chrome.storage.sync.
  */
 
 (function () {
   'use strict';
 
-  const toggle = document.getElementById('hideCollectionOnly');
-  const applyBtn = document.getElementById('applyNow');
-  const statusBar = document.getElementById('statusBar');
-  const statusText = document.getElementById('statusText');
+  // ── Setting definitions ─────────────────────────────────
+  // Each entry: { id, storageKey, default }
+  const SETTINGS = [
+    { id: 'hideCollectionOnly', key: 'hideCollectionOnly', default: true },
+    { id: 'localItemsOnly',    key: 'localItemsOnly',    default: true },
+    { id: 'soldPriceStats',    key: 'soldPriceStats',    default: true },
+    { id: 'stickyFilters',     key: 'stickyFilters',     default: false }
+  ];
 
-  // ── Load saved setting ──────────────────────────────────
-  chrome.storage.sync.get({ hideCollectionOnly: true }, function (settings) {
-    toggle.checked = settings.hideCollectionOnly;
-    updateStatus(settings.hideCollectionOnly);
+  const statusBar  = document.getElementById('statusBar');
+  const statusText = document.getElementById('statusText');
+  const applyBtn   = document.getElementById('applyNow');
+
+  // Build defaults object for chrome.storage.sync.get
+  const defaults = {};
+  SETTINGS.forEach(s => { defaults[s.key] = s.default; });
+
+  // ── Load saved settings ─────────────────────────────────
+  chrome.storage.sync.get(defaults, function (settings) {
+    SETTINGS.forEach(s => {
+      const toggle = document.getElementById(s.id);
+      if (toggle) toggle.checked = settings[s.key];
+    });
+    updateStatus(settings);
   });
 
-  // ── Save on change ──────────────────────────────────────
-  toggle.addEventListener('change', function () {
-    const value = toggle.checked;
-    chrome.storage.sync.set({ hideCollectionOnly: value }, function () {
-      updateStatus(value);
-      flashSaved();
+  // ── Attach change listeners ─────────────────────────────
+  SETTINGS.forEach(s => {
+    const toggle = document.getElementById(s.id);
+    if (!toggle) return;
+
+    toggle.addEventListener('change', function () {
+      const update = {};
+      update[s.key] = toggle.checked;
+      chrome.storage.sync.set(update, function () {
+        // Re-read all settings to update status bar
+        chrome.storage.sync.get(defaults, function (allSettings) {
+          updateStatus(allSettings);
+          flashSaved();
+        });
+      });
     });
   });
 
   // ── Status bar ──────────────────────────────────────────
-  function updateStatus(active) {
-    if (active) {
+  function updateStatus(settings) {
+    const activeCount = SETTINGS.filter(s => settings[s.key]).length;
+    const total = SETTINGS.length;
+
+    if (activeCount > 0) {
       statusBar.classList.remove('inactive');
-      statusText.textContent = 'Filter active';
+      statusText.textContent = activeCount + ' of ' + total + ' filters active';
     } else {
       statusBar.classList.add('inactive');
-      statusText.textContent = 'Filter disabled';
+      statusText.textContent = 'All filters disabled';
     }
   }
 

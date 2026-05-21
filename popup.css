@@ -1,5 +1,5 @@
 /* ============================================================
-   eBay UK Filter Pro — Popup Styles
+   BayBuddy — Popup Styles
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -13,9 +13,9 @@
 }
 
 :root {
-  --ebay-blue: #3665f3;
-  --ebay-blue-glow: rgba(54, 101, 243, 0.35);
-  --ebay-green: #5cb85c;
+  --bb-blue: #3665f3;
+  --bb-blue-glow: rgba(54, 101, 243, 0.35);
+  --bb-green: #5cb85c;
 
   --bg-primary: #0f1117;
   --bg-secondary: #161822;
@@ -90,16 +90,17 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--ebay-blue), #5b7ff7);
+  background: linear-gradient(135deg, #1a237e, #283593);
   border-radius: var(--radius-sm);
-  color: white;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px var(--ebay-blue-glow);
+  box-shadow: 0 4px 12px rgba(26, 35, 126, 0.4);
+  overflow: hidden;
 }
 
-.logo-icon svg {
-  width: 20px;
-  height: 20px;
+.logo-icon img {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
 }
 
 .logo-text h1 {
@@ -135,7 +136,7 @@ body {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--ebay-green);
+  background: var(--bb-green);
   box-shadow: 0 0 8px rgba(92, 184, 92, 0.5);
   animation: pulse 2s ease-in-out infinite;
 }
@@ -154,7 +155,7 @@ body {
 .status-text {
   font-size: 11px;
   font-weight: 500;
-  color: var(--ebay-green);
+  color: var(--bb-green);
   letter-spacing: 0.2px;
 }
 
@@ -167,6 +168,9 @@ body {
   position: relative;
   z-index: 1;
   padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   animation: fadeIn 300ms ease-out both;
 }
 
@@ -247,8 +251,8 @@ body {
 }
 
 .toggle-switch input:checked + .toggle-slider {
-  background: var(--ebay-blue);
-  box-shadow: 0 0 12px var(--ebay-blue-glow);
+  background: var(--bb-blue);
+  box-shadow: 0 0 12px var(--bb-blue-glow);
 }
 
 .toggle-switch input:checked + .toggle-slider::before {
@@ -263,13 +267,6 @@ body {
   border-top: 1px solid var(--border-color);
 }
 
-.footer-note {
-  font-size: 11px;
-  color: var(--text-muted);
-  text-align: center;
-  margin-bottom: 12px;
-}
-
 .apply-btn {
   display: flex;
   align-items: center;
@@ -277,7 +274,7 @@ body {
   gap: 8px;
   width: 100%;
   padding: 10px 16px;
-  background: linear-gradient(135deg, var(--ebay-blue), #4f7af8);
+  background: linear-gradient(135deg, var(--bb-blue), #4f7af8);
   color: white;
   font-family: inherit;
   font-size: 13px;
@@ -286,7 +283,7 @@ body {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
-  box-shadow: 0 4px 14px var(--ebay-blue-glow);
+  box-shadow: 0 4px 14px var(--bb-blue-glow);
 }
 
 .apply-btn svg {
@@ -296,10 +293,10 @@ body {
 
 .apply-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px var(--ebay-blue-glow);
+  box-shadow: 0 6px 20px var(--bb-blue-glow);
 }
 
 .apply-btn:active {
   transform: translateY(0);
-  box-shadow: 0 2px 8px var(--ebay-blue-glow);
+  box-shadow: 0 2px 8px var(--bb-blue-glow);
 }

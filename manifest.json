@@ -1,14 +1,26 @@
 {
   "manifest_version": 3,
-  "name": "eBay Hide Collection Only",
-  "version": "1.0.0",
-  "description": "Hide collection-only listings on eBay UK search results so you only see items that can be posted.",
+  "name": "BayBuddy",
+  "version": "2.0.0",
+  "description": "Your smart eBay companion — hide collection-only listings, filter by location, search sold items, and view price analytics.",
   "permissions": [
     "storage",
     "activeTab"
   ],
   "host_permissions": [
-    "https://www.ebay.co.uk/*"
+    "https://www.ebay.co.uk/*",
+    "https://www.ebay.com/*",
+    "https://www.ebay.com.au/*",
+    "https://www.ebay.ca/*",
+    "https://www.ebay.de/*",
+    "https://www.ebay.fr/*",
+    "https://www.ebay.it/*",
+    "https://www.ebay.es/*",
+    "https://www.ebay.ie/*",
+    "https://www.ebay.nl/*",
+    "https://www.ebay.at/*",
+    "https://www.ebay.ch/*",
+    "https://www.ebay.pl/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -21,7 +33,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.ebay.co.uk/sch/*"],
+      "matches": [
+        "https://www.ebay.co.uk/sch/*",
+        "https://www.ebay.com/sch/*",
+        "https://www.ebay.com.au/sch/*",
+        "https://www.ebay.ca/sch/*",
+        "https://www.ebay.de/sch/*",
+        "https://www.ebay.fr/sch/*",
+        "https://www.ebay.it/sch/*",
+        "https://www.ebay.es/sch/*",
+        "https://www.ebay.ie/sch/*",
+        "https://www.ebay.nl/sch/*",
+        "https://www.ebay.at/sch/*",
+        "https://www.ebay.ch/sch/*",
+        "https://www.ebay.pl/sch/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

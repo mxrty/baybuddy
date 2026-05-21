@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=360" />
-  <title>eBay UK Filter Pro</title>
+  <title>BayBuddy</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
@@ -12,13 +12,11 @@
     <header class="popup-header">
       <div class="logo-row">
         <div class="logo-icon">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+          <img src="icons/icon32.png" alt="BayBuddy" width="24" height="24" />
         </div>
         <div class="logo-text">
-          <h1>eBay UK Filter Pro</h1>
-          <p class="subtitle">Hide collection-only listings</p>
+          <h1>BayBuddy</h1>
+          <p class="subtitle">Your smart eBay companion</p>
         </div>
       </div>
     </header>
@@ -26,18 +24,55 @@
     <!-- Status Indicator -->
     <div class="status-bar" id="statusBar">
       <span class="status-dot"></span>
-      <span class="status-text" id="statusText">Filter active</span>
+      <span class="status-text" id="statusText">Filters active</span>
     </div>
 
-    <!-- Toggle -->
+    <!-- Toggles -->
     <section class="filter-section">
+      <!-- Hide Collection Only -->
       <div class="toggle-row">
         <div class="toggle-info">
           <span class="toggle-label">Hide Collection Only</span>
-          <span class="toggle-desc">Remove listings that only offer collection</span>
+          <span class="toggle-desc">Remove pickup-only listings</span>
         </div>
         <label class="toggle-switch">
           <input type="checkbox" id="hideCollectionOnly" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <!-- Local Items Only -->
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span class="toggle-label">Local Items Only</span>
+          <span class="toggle-desc">Show only items in your country</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="localItemsOnly" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <!-- Sold Price Stats -->
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span class="toggle-label">Sold Price Stats</span>
+          <span class="toggle-desc">Show price analytics on sold pages</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="soldPriceStats" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <!-- Sticky Filters -->
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <span class="toggle-label">Sticky Filters</span>
+          <span class="toggle-desc">Keep filters between searches</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="stickyFilters" />
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -45,7 +80,6 @@
 
     <!-- Footer -->
     <footer class="popup-footer">
-      <p class="footer-note">Changes apply on next search or refresh</p>
       <button class="apply-btn" id="applyNow">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
