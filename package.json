@@ -1,0 +1,22 @@
+{
+  "name": "baybuddy",
+  "version": "1.0.0",
+  "description": "**Your smart eBay companion** — a Chrome extension that makes eBay search smarter with powerful filters, sold price analytics, and sticky search preferences.",
+  "main": "content.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/chrome": "^0.1.42",
+    "@types/jest": "^30.0.0",
+    "esbuild": "^0.28.0",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "jsdom": "^27.0.1",
+    "ts-jest": "^29.4.10",
+    "typescript": "^6.0.3"
+  }
+}

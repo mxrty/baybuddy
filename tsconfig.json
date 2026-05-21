@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2016",
+    "lib": ["DOM", "ES2016", "DOM.Iterable"],
+    "module": "ES6",
+    "moduleResolution": "node",
+    "outDir": "./",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["chrome", "jest"]
+  },
+  "include": ["src/**/*"]
+}
