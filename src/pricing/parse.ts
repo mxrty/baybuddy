@@ -82,17 +82,49 @@ export function isJunk(item: RawListing): boolean {
   return false;
 }
 
-const EXCLUDED_CONDITIONS = ['for parts', 'spares or repair', 'not working'];
+const EXCLUDED_CONDITIONS = [
+  'for parts', 'spares or repair', 'not working', 'parts only',
+];
+
+const DEFECT_TITLE_PHRASES = [
+  'for parts', 'spares', 'parts only', 'not working', 'faulty',
+  'cracked', 'damaged', 'broken', 'repair', 'no face id',
+  'read description', 'please read',
+];
 
 export function isExcluded(item: RawListing): boolean {
   const cond = item.condition.toLowerCase();
-  return EXCLUDED_CONDITIONS.some(phrase => cond.includes(phrase));
+  if (EXCLUDED_CONDITIONS.some(phrase => cond.includes(phrase))) return true;
+  const title = item.title.toLowerCase();
+  return DEFECT_TITLE_PHRASES.some(phrase => title.includes(phrase));
+}
+
+const MULTI_VARIANT_TITLE_PHRASES = [
+  'all colours', 'all colors', 'all sizes',
+];
+
+export function isMultiVariant(item: RawListing): boolean {
+  const title = item.title.toLowerCase();
+  if (MULTI_VARIANT_TITLE_PHRASES.some(phrase => title.includes(phrase))) return true;
+
+  // Price range: "£576.99 to £764.99"
+  const cleaned = item.priceText.replace(/[£$€,]/g, '').replace(/AU\s*/i, '').replace(/US\s*/i, '');
+  if (cleaned.includes(' to ')) {
+    const nums = cleaned.match(/[\d]+(?:\.[\d]+)?/g);
+    if (nums && nums.length >= 2) return true;
+  }
+
+  // Multiple capacity tokens: "128GB 256GB 512GB"
+  const capacityMatches = item.title.match(/\b\d+\s*(?:gb|tb)\b/gi);
+  if (capacityMatches && capacityMatches.length >= 2) return true;
+
+  return false;
 }
 
 export function parseRawListings(items: RawListing[]): ParsedListing[] {
   return items.map(item => {
     const junk = isJunk(item);
-    const excluded = isExcluded(item);
+    const excluded = isExcluded(item) || isMultiVariant(item);
     const title = cleanTitle(item.title);
     const itemPrice = parsePriceText(item.priceText);
     const { postage, postageKnown } = parsePostageFromText(item.deliveryText);

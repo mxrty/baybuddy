@@ -224,10 +224,17 @@ describe('volkswagen-golf-sold — high variance, few badges', () => {
     result = analysePricing(loadDataset('volkswagen-golf-sold'), 'volkswagen golf');
   });
 
-  test('most assessments have no badge (heterogeneous data)', () => {
+  test('salvage/spares cars are excluded from analysis', () => {
+    const excluded = result.summary.filteredOut;
+    expect(excluded).toBeGreaterThanOrEqual(5);
+  });
+
+  test('badge rate is not universal (heterogeneous year/model spread)', () => {
     const withBadge = result.assessments.filter(a => a.showBadge).length;
     const total = result.assessments.length;
-    expect(withBadge).toBeLessThan(total * 0.7);
+    // After excluding salvage outliers, remaining clean Golfs span many years/models;
+    // badge rate can be higher than before but should not reach 100%.
+    expect(withBadge).toBeLessThan(total);
   });
 });
 

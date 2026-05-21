@@ -140,9 +140,52 @@ import { renderDashboard } from './ui/dashboard';
     }
   }
 
+  function renderCollectionHiddenPill(hiddenCount: number, totalCount: number) {
+    const PILL_ID = 'bb-collection-hidden-pill';
+    let pill = document.getElementById(PILL_ID);
+
+    if (hiddenCount === 0) {
+      pill?.remove();
+      return;
+    }
+
+    const allHidden = hiddenCount === totalCount && totalCount > 0;
+    const text = allHidden
+      ? `All ${totalCount} listing${totalCount !== 1 ? 's' : ''} hidden (collection only)`
+      : `${hiddenCount} collection-only listing${hiddenCount !== 1 ? 's' : ''} hidden`;
+
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.id = PILL_ID;
+      pill.style.cssText = [
+        'display:inline-block',
+        'margin:8px 4px',
+        'padding:4px 10px',
+        'background:#f5f5f5',
+        'border:1px solid #ddd',
+        'border-radius:12px',
+        'font-size:12px',
+        'color:#666',
+        'font-family:sans-serif',
+      ].join(';');
+
+      const container = document.querySelector('.srp-results, #srp-river-results, .srp-river-main');
+      if (container) container.insertBefore(pill, container.firstChild);
+    }
+
+    pill.textContent = text;
+  }
+
   function processAllCards() {
     const cards = getListingCards();
     cards.forEach(processCard);
+
+    const realCards = Array.from(cards).filter(card =>
+      !card.classList?.contains('s-item__pl-on-bottom') &&
+      !card.classList?.contains('s-card__pl-on-bottom'),
+    );
+    const hiddenCount = realCards.filter(card => card.hasAttribute(HIDDEN_ATTR)).length;
+    renderCollectionHiddenPill(hiddenCount, realCards.length);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -254,13 +297,21 @@ import { renderDashboard } from './ui/dashboard';
       if (card.classList && (card.classList.contains('s-item__pl-on-bottom') || card.classList.contains('s-card__pl-on-bottom'))) return;
       const titleEl = card.querySelector('.s-item__title, .s-card__title');
       const priceEl = card.querySelector('.s-item__price, .s-card__price');
-      const conditionEl = card.querySelector('.s-item__subtitle, .s-item__secondary-info, .SECONDARY_INFO, .s-card__subtitle, .s-item__condition');
+      const conditionSelectors = [
+        '.s-item__subtitle', '.s-item__secondary-info', '.SECONDARY_INFO',
+        '.s-card__subtitle', '.s-item__condition', '.s-card__attribute-row',
+      ];
+      const conditionText = conditionSelectors
+        .flatMap(sel => Array.from(card.querySelectorAll(sel)))
+        .map(el => el.textContent || '')
+        .join(' ')
+        .trim();
       const linkEl = card.querySelector('a.s-item__link, a.s-card__link') as HTMLAnchorElement | null;
       if (!titleEl || !priceEl) return;
       raw.push({
         title: titleEl.textContent || '',
         priceText: priceEl.textContent || '',
-        condition: conditionEl?.textContent || '',
+        condition: conditionText,
         link: linkEl?.href || linkEl?.getAttribute('href') || '',
         deliveryText: getDeliveryText(card),
       });

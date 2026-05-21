@@ -6,6 +6,7 @@ import {
   parsePostageFromText,
   isJunk,
   isExcluded,
+  isMultiVariant,
   parseRawListings,
 } from '../parse';
 import type { RawListing } from '../types';
@@ -193,6 +194,77 @@ describe('isExcluded', () => {
 
   test('does not exclude "Good - Refurbished"', () => {
     expect(isExcluded(makeItem('Good - Refurbished'))).toBe(false);
+  });
+
+  test('excludes "Parts only" condition (new .s-card layout subtitle)', () => {
+    expect(isExcluded(makeItem('Parts only ·'))).toBe(true);
+  });
+
+  test('excludes item with "for parts" in title', () => {
+    const item: RawListing = { title: 'iPhone 16 for parts', priceText: '£50.00', condition: '', link: '', deliveryText: '' };
+    expect(isExcluded(item)).toBe(true);
+  });
+
+  test('excludes item with "faulty" in title', () => {
+    const item: RawListing = { title: 'Dyson V11 faulty motor', priceText: '£30.00', condition: '', link: '', deliveryText: '' };
+    expect(isExcluded(item)).toBe(true);
+  });
+
+  test('excludes item with "cracked screen" in title', () => {
+    const item: RawListing = { title: 'Apple iPhone 16 cracked screen', priceText: '£100.00', condition: 'Pre-owned', link: '', deliveryText: '' };
+    expect(isExcluded(item)).toBe(true);
+  });
+
+  test('does not exclude normal listing with no defect phrases', () => {
+    const item: RawListing = { title: 'Apple iPhone 16 128GB Unlocked', priceText: '£650.00', condition: 'Pre-owned', link: '', deliveryText: '' };
+    expect(isExcluded(item)).toBe(false);
+  });
+});
+
+// ── isMultiVariant ────────────────────────────────────────────────────────────
+
+describe('isMultiVariant', () => {
+  const makeItem = (title: string, priceText = '£100.00'): RawListing => ({
+    title, priceText, condition: 'Pre-owned', link: '', deliveryText: '',
+  });
+
+  test('flags listing with price range', () => {
+    expect(isMultiVariant(makeItem('Apple iPhone 16', '£576.99 to £764.99'))).toBe(true);
+  });
+
+  test('flags listing with multiple capacity tokens in title', () => {
+    expect(isMultiVariant(makeItem('Apple iPhone 16 - 128GB 256GB 512GB All Colours'))).toBe(true);
+  });
+
+  test('flags "all colours" in title', () => {
+    expect(isMultiVariant(makeItem('Apple iPhone 16 128GB all colours'))).toBe(true);
+  });
+
+  test('flags "all colors" in title', () => {
+    expect(isMultiVariant(makeItem('Samsung Galaxy S24 128GB all colors'))).toBe(true);
+  });
+
+  test('flags "all sizes" in title', () => {
+    expect(isMultiVariant(makeItem('Nike Air Max all sizes'))).toBe(true);
+  });
+
+  test('does not flag single-variant listing', () => {
+    expect(isMultiVariant(makeItem('Apple iPhone 16 128GB Black Unlocked'))).toBe(false);
+  });
+
+  test('does not flag single capacity token', () => {
+    expect(isMultiVariant(makeItem('Apple iPhone 16 256GB'))).toBe(false);
+  });
+
+  test('multi-variant listing is marked excluded in parseRawListings', () => {
+    const items: RawListing[] = [{
+      title: 'Apple iPhone 16 - 128GB 256GB 512GB / All Colours',
+      priceText: '£576.99 to £764.99',
+      condition: 'Pre-owned',
+      link: '',
+      deliveryText: 'Free delivery',
+    }];
+    expect(parseRawListings(items)[0].isExcluded).toBe(true);
   });
 });
 
