@@ -32,7 +32,7 @@ Remembers your active filters (condition, price range, buying format, etc.) and 
 ### Manual Installation (Developer Mode)
 1. Clone this repository:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/baybuddy.git
+   git clone https://github.com/mxrty/baybuddy.git
    ```
 2. Open Chrome and navigate to `chrome://extensions/`
 3. Enable **Developer mode** (toggle in top-right)

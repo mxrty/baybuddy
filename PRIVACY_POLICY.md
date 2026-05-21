@@ -45,4 +45,4 @@ If this privacy policy changes, the updated version will be published in the ext
 
 ## Contact
 
-If you have questions about this privacy policy, please open an issue on the [GitHub repository](https://github.com/YOUR_USERNAME/baybuddy).
+If you have questions about this privacy policy, please open an issue on the [GitHub repository](https://github.com/mxrty/baybuddy).
