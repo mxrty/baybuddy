@@ -9,7 +9,8 @@
     "build": "esbuild src/content.ts --bundle --outfile=content.js && esbuild src/popup.ts --bundle --outfile=popup.js && tailwindcss -i src/popup.css -o popup.css --minify",
     "watch:content": "esbuild src/content.ts --bundle --outfile=content.js --watch",
     "watch:popup": "esbuild src/popup.ts --bundle --outfile=popup.js --watch",
-    "watch:css": "tailwindcss -i src/popup.css -o popup.css --watch"
+    "watch:css": "tailwindcss -i src/popup.css -o popup.css --watch",
+    "format": "prettier --write src popup.html"
   },
   "keywords": [],
   "author": "",
@@ -22,6 +23,7 @@
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "jsdom": "^27.0.1",
+    "prettier": "^3.8.3",
     "tailwindcss": "^3.4.19",
     "ts-jest": "^29.4.10",
     "typescript": "^6.0.3"
