@@ -3,4 +3,6 @@ node_modules/
 *.zip
 *.crx
 *.pem
-test-data/
+test-data/*-active.json
+test-data/*-sold.json
+test-data/*-used.json

@@ -1,0 +1,13 @@
+{
+  "name": "test-data",
+  "version": "1.0.0",
+  "description": "Because eBay implements strict anti-bot measures (CAPTCHAs, IP blocking) that often block automated tools like `curl`, `fetch`, or headless `Puppeteer`, the most reliable way to gather realistic test data sets is by using a manual browser injection method.",
+  "main": "extract.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

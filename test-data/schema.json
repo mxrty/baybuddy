@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "searchTerm": {
+      "type": "string",
+      "description": "The search query used"
+    },
+    "isSold": {
+      "type": "boolean",
+      "description": "Whether this dataset represents sold listings"
+    },
+    "isUsed": {
+      "type": "boolean",
+      "description": "Whether this dataset is filtered for used condition only"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "priceText": { "type": "string" },
+          "condition": { "type": "string" },
+          "link": { "type": "string" },
+          "deliveryText": { "type": "string", "description": "The delivery text, useful for collection-only testing" }
+        },
+        "required": ["title", "priceText", "condition"]
+      }
+    }
+  },
+  "required": ["searchTerm", "items"]
+}
