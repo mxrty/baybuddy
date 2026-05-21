@@ -4,7 +4,9 @@
   "description": "**Your smart eBay companion** — a Chrome extension that makes eBay search smarter with powerful filters, sold price analytics, and sticky search preferences.",
   "main": "content.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "build": "esbuild src/content.ts --bundle --outfile=content.js",
+    "watch": "esbuild src/content.ts --bundle --outfile=content.js --watch"
   },
   "keywords": [],
   "author": "",

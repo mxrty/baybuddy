@@ -9,7 +9,8 @@ import {
   jaccardSimilarity,
   clusterListings,
   calculateGroupStats,
-  ListingItem
+  ListingItem,
+  Cluster
 } from './utils';
 
 (function () {
@@ -278,7 +279,17 @@ import {
           <div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.03); border-radius: 4px;">
             <strong>Group ${i + 1}</strong> (${cStats.validItems.length} items) - Avg: ${formatPrice(cStats.mean, currency)}
             <ul style="margin: 4px 0 0; padding-left: 20px; color: #575b6e;">
-              ${cStats.validItems.map((item: any) => `<li><a href="${(item.card.querySelector('a.s-item__link, a.s-card__link') as HTMLAnchorElement)?.href || '#'}" target="_blank" style="color:inherit; text-decoration:none;">${item.title.substring(0, 50)}... (${formatPrice(item.price, currency)})</a></li>`).join('')}
+              ${cStats.validItems.map((item: any) => {
+                const linkEl = item.card.querySelector('a.s-item__link, a.s-card__link');
+                let href = '#';
+                if (linkEl) {
+                  href = linkEl.getAttribute('href') || linkEl.href || '#';
+                  if (href !== '#' && !href.startsWith('http')) {
+                    href = window.location.origin + (href.startsWith('/') ? '' : '/') + href;
+                  }
+                }
+                return `<li><a href="${href}" target="_blank" style="color:inherit; text-decoration:none;">${item.title.substring(0, 50)}... (${formatPrice(item.price, currency)})</a></li>`;
+              }).join('')}
             </ul>
           </div>
         `;
@@ -435,7 +446,17 @@ import {
       dropdown.innerHTML = `
         <strong>Comparable items:</strong>
         <ul style="margin: 4px 0 0; padding-left: 16px;">
-          ${otherItems.map((i: any) => `<li><a href="${(i.card.querySelector('a.s-item__link, a.s-card__link') as HTMLAnchorElement)?.href || '#'}" target="_blank" style="color:inherit; text-decoration:none;">${i.title.substring(0, 40)}... (${formatPrice(i.price, currency)})</a></li>`).join('')}
+          ${otherItems.map((i: any) => {
+            const linkEl = i.card.querySelector('a.s-item__link, a.s-card__link');
+            let href = '#';
+            if (linkEl) {
+              href = linkEl.getAttribute('href') || linkEl.href || '#';
+              if (href !== '#' && !href.startsWith('http')) {
+                href = window.location.origin + (href.startsWith('/') ? '' : '/') + href;
+              }
+            }
+            return `<li><a href="${href}" target="_blank" style="color:inherit; text-decoration:none;">${i.title.substring(0, 40)}... (${formatPrice(i.price, currency)})</a></li>`;
+          }).join('')}
         </ul>
       `;
       if (otherItems.length === 0) {
@@ -454,7 +475,9 @@ import {
     }
   }
 
-  function applyPriceIntelligence(settings: any, retryCount = 0) {
+  let fetchSoldPromise: Promise<ListingItem[]> | null = null;
+
+  async function applyPriceIntelligence(settings: any, retryCount = 0) {
     const cards = getListingCards();
     
     if (cards.length === 0 && retryCount < 5) {
@@ -463,34 +486,106 @@ import {
     }
 
     const currency = detectCurrency(window.location.host);
-    const listings: ListingItem[] = [];
+    const activeListings: ListingItem[] = [];
     cards.forEach(c => {
       const data = getListingData(c);
-      if (data) listings.push(data);
+      if (data) activeListings.push(data);
     });
 
-    const clusters = clusterListings(listings, settings.confidenceThreshold);
-    const overallStats = calculateGroupStats(listings, settings.excludeBroken);
+    let referenceListings: ListingItem[] = [];
+
+    if (isViewingSold()) {
+      referenceListings = activeListings;
+    } else {
+      if (!fetchSoldPromise) {
+        fetchSoldPromise = (async () => {
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('LH_Sold', '1');
+            url.searchParams.set('LH_Complete', '1');
+            
+            const response = await fetch(url.toString());
+            const text = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            
+            const selectors = [
+              'li.s-card',
+              '.s-card',
+              'li.s-item',
+              '.srp-results .s-item',
+              'ul.srp-results > li',
+              '[data-viewport]'
+            ];
+            
+            let soldCards: Element[] = [];
+            for (const sel of selectors) {
+              const found = doc.querySelectorAll(sel);
+              if (found.length > 0) {
+                soldCards = Array.from(found);
+                break;
+              }
+            }
+            
+            const items: ListingItem[] = [];
+            soldCards.forEach(c => {
+              const data = getListingData(c);
+              if (data) items.push(data);
+            });
+            return items;
+          } catch (e) {
+            console.error('BayBuddy: Failed to fetch sold listings', e);
+            return activeListings;
+          }
+        })();
+      }
+      
+      referenceListings = await fetchSoldPromise;
+      if (referenceListings.length === 0) {
+        referenceListings = activeListings;
+      }
+    }
+
+    const clusters = clusterListings(referenceListings, settings.confidenceThreshold);
+    const overallStats = calculateGroupStats(referenceListings, settings.excludeBroken);
     
     createOverviewPanel(overallStats, clusters, currency, settings);
 
     for (const cluster of clusters) {
-      const stats = calculateGroupStats(cluster.items, settings.excludeBroken);
-      
-      for (const item of cluster.items) {
-        if (!item.price) continue;
+      // (Optional: badge sold items if viewing sold page. But we are iterating over activeListings below anyway)
+    }
 
-        let isBroken = false;
-        if (settings.excludeBroken) {
-          const cond = item.condition;
-          if (cond.includes('parts') || cond.includes('repair') || cond.includes('faulty') || cond.includes('broken')) {
-            isBroken = true;
-          }
+    for (const item of activeListings) {
+      if (!item.price) continue;
+
+      let isBroken = false;
+      if (settings.excludeBroken) {
+        const cond = item.condition;
+        if (cond.includes('parts') || cond.includes('repair') || cond.includes('faulty') || cond.includes('broken')) {
+          isBroken = true;
         }
+      }
 
-        if (isBroken) {
-          injectBadge(item, { type: 'excluded' }, currency);
-        } else if (stats) {
+      if (isBroken) {
+        injectBadge(item, { type: 'excluded' }, currency);
+        continue;
+      }
+      
+      let bestCluster: Cluster | null = null;
+      let bestScore = -1;
+      const threshold = settings.confidenceThreshold / 100;
+
+      for (const cluster of clusters) {
+        const score = jaccardSimilarity(item.tokens, cluster.items[0].tokens);
+        if (score > bestScore) {
+          bestScore = score;
+          bestCluster = cluster;
+        }
+      }
+
+      if (bestScore >= threshold && bestCluster) {
+        const stats = calculateGroupStats(bestCluster.items, settings.excludeBroken);
+        if (stats) {
           const diff = item.price - stats.mean;
           if (diff < -0.5 * stats.stdDev) {
             injectBadge(item, { type: 'good', mean: stats.mean }, currency, stats);
