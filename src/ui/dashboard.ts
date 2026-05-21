@@ -1,34 +1,42 @@
-import { detectCurrency } from '../utils';
-import type { PricingResult, PricingGroup } from '../pricing/types';
+import { detectCurrency } from "../utils";
+import type { PricingResult, PricingGroup } from "../pricing/types";
 
 function fmtPrice(amount: number, currency: string): string {
   return `${currency}${amount.toFixed(2)}`;
 }
 
 const CONFIDENCE_LABEL: Record<string, string> = {
-  high:        '● High confidence',
-  medium:      '● Med confidence',
-  low:         '● Low confidence',
-  insufficient:'● Insufficient data',
+  high: "● High confidence",
+  medium: "● Med confidence",
+  low: "● Low confidence",
+  insufficient: "● Insufficient data",
 };
 
 const CONFIDENCE_COLOR: Record<string, string> = {
-  high:        '#5cb85c',
-  medium:      '#f0ad4e',
-  low:         '#f0ad4e',
-  insufficient:'#aaa',
+  high: "#5cb85c",
+  medium: "#f0ad4e",
+  low: "#f0ad4e",
+  insufficient: "#aaa",
 };
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-function renderGroupCard(group: PricingGroup, currency: string, depth: number): string {
-  const isInsufficient = group.confidence === 'insufficient';
-  const opacity = isInsufficient ? '0.55' : '1';
+function renderGroupCard(
+  group: PricingGroup,
+  currency: string,
+  depth: number,
+): string {
+  const isInsufficient = group.confidence === "insufficient";
+  const opacity = isInsufficient ? "0.55" : "1";
   const indentPx = depth * 12;
-  const confColor = CONFIDENCE_COLOR[group.confidence] ?? '#aaa';
-  const confLabel = CONFIDENCE_LABEL[group.confidence] ?? '';
+  const confColor = CONFIDENCE_COLOR[group.confidence] ?? "#aaa";
+  const confLabel = CONFIDENCE_LABEL[group.confidence] ?? "";
 
   const medianStr = fmtPrice(group.stats.median, currency);
   const minStr = fmtPrice(group.stats.min, currency);
@@ -39,12 +47,16 @@ function renderGroupCard(group: PricingGroup, currency: string, depth: number): 
   if (group.children.length > 0) {
     bodyHtml =
       `<div style="padding-left:${indentPx + 8}px;margin-top:6px;">` +
-      group.children.map(c => renderGroupCard(c, currency, depth + 1)).join('') +
-      '</div>';
+      group.children
+        .map((c) => renderGroupCard(c, currency, depth + 1))
+        .join("") +
+      "</div>";
   } else {
-    const items = group.items.map(item => {
-      const href = escapeHtml(item.link || '#');
-      const title = escapeHtml(item.title.substring(0, 60)) + (item.title.length > 60 ? '&hellip;' : '');
+    const items = group.items.map((item) => {
+      const href = escapeHtml(item.link || "#");
+      const title =
+        escapeHtml(item.title.substring(0, 60)) +
+        (item.title.length > 60 ? "&hellip;" : "");
       const price = fmtPrice(item.totalPrice, currency);
       return (
         `<li style="margin:2px 0;">` +
@@ -56,8 +68,8 @@ function renderGroupCard(group: PricingGroup, currency: string, depth: number): 
     });
     bodyHtml =
       `<ul style="margin:6px 0 0;padding-left:${indentPx + 16}px;color:#575b6e;">` +
-      items.join('') +
-      '</ul>';
+      items.join("") +
+      "</ul>";
   }
 
   return (
@@ -76,16 +88,19 @@ function renderGroupCard(group: PricingGroup, currency: string, depth: number): 
   );
 }
 
-export function renderDashboard(result: PricingResult, root: HTMLElement): void {
+export function renderDashboard(
+  result: PricingResult,
+  root: HTMLElement,
+): void {
   const currency = detectCurrency(window.location.host);
   const { rootGroups, summary } = result;
 
-  let panel = document.getElementById('bb-overview-panel');
+  let panel = document.getElementById("bb-overview-panel");
   let needsAppend = false;
 
   if (!panel) {
-    panel = document.createElement('div');
-    panel.id = 'bb-overview-panel';
+    panel = document.createElement("div");
+    panel.id = "bb-overview-panel";
     needsAppend = true;
   }
 
@@ -95,11 +110,14 @@ export function renderDashboard(result: PricingResult, root: HTMLElement): void 
   }
 
   // rootGroups are already sorted by relevanceScore desc, count desc (done in analysePricing)
-  const groupsHtml = rootGroups.map(g => renderGroupCard(g, currency, 0)).join('');
+  const groupsHtml = rootGroups
+    .map((g) => renderGroupCard(g, currency, 0))
+    .join("");
 
-  const rangeStr = summary.overallPriceRange.max > 0
-    ? `${fmtPrice(summary.overallPriceRange.min, currency)}&ndash;${fmtPrice(summary.overallPriceRange.max, currency)}`
-    : 'n/a';
+  const rangeStr =
+    summary.overallPriceRange.max > 0
+      ? `${fmtPrice(summary.overallPriceRange.min, currency)}&ndash;${fmtPrice(summary.overallPriceRange.max, currency)}`
+      : "n/a";
 
   panel.innerHTML =
     `<details style="margin:16px auto;background:rgba(54,101,243,0.05);` +
@@ -122,15 +140,18 @@ export function renderDashboard(result: PricingResult, root: HTMLElement): void 
 
   if (needsAppend) {
     const resultsContainer =
-      root.querySelector('.srp-results') ||
-      root.querySelector('#srp-river-results') ||
+      root.querySelector(".srp-results") ||
+      root.querySelector("#srp-river-results") ||
       root.querySelector('[id*="ResultSet"]') ||
-      root.querySelector('.srp-river-main');
+      root.querySelector(".srp-river-main");
 
     if (resultsContainer && resultsContainer.parentNode) {
       resultsContainer.parentNode.insertBefore(panel, resultsContainer);
     } else {
-      const main = root.querySelector('#mainContent') || root.querySelector('#srp-river') || root;
+      const main =
+        root.querySelector("#mainContent") ||
+        root.querySelector("#srp-river") ||
+        root;
       main.insertBefore(panel, main.firstChild);
     }
   }

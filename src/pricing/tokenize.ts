@@ -1,4 +1,4 @@
-import type { WeightedTokens } from './types';
+import type { WeightedTokens } from "./types";
 
 // Matches tokens that should be kept as a single unit:
 //  1. Letters+digits (or digit+letters) combos with optional internal / or -  → model numbers
@@ -8,10 +8,49 @@ const COMPOUND_TOKEN_RE =
   /\b([A-Za-z]+\d[A-Za-z0-9]*(?:[\/\-][A-Za-z0-9]+)*|\d+[A-Za-z][A-Za-z0-9]*(?:[\/\-][A-Za-z0-9]+)*)\b|\b(\d+(?:\.\d+)?(?:TB|GB|MB|KB|GHz|MHz|MP|mAh|W|V)s?)\b|\b(\d+-(?:piece|pieces|pack|packs|pcs|set|sets))\b/gi;
 
 const STOPWORDS = new Set([
-  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'for', 'to', 'of',
-  'with', 'by', 'from', 'into', 'up', 'is', 'it', 'its', 'this', 'that', 'as',
-  'be', 'was', 'has', 'have', 'had', 'not', 'no', 'so', 'if', 'are', 'can',
-  'very', 'also', 'just', 'only', 'than', 'more', 'most', 'some', 'any',
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "but",
+  "in",
+  "on",
+  "at",
+  "for",
+  "to",
+  "of",
+  "with",
+  "by",
+  "from",
+  "into",
+  "up",
+  "is",
+  "it",
+  "its",
+  "this",
+  "that",
+  "as",
+  "be",
+  "was",
+  "has",
+  "have",
+  "had",
+  "not",
+  "no",
+  "so",
+  "if",
+  "are",
+  "can",
+  "very",
+  "also",
+  "just",
+  "only",
+  "than",
+  "more",
+  "most",
+  "some",
+  "any",
 ]);
 
 // Per-run memo — cleared each analysePricing run
@@ -26,8 +65,10 @@ function isModelShaped(tok: string): boolean {
 }
 
 function isCapacity(tok: string): boolean {
-  return /^\d+(?:\.\d+)?(?:TB|GB|MB|KB|GHz|MHz|MP|mAh|W|V)s?$/i.test(tok) ||
-    /^\d+-(?:piece|pieces|pack|packs|pcs|set|sets)$/i.test(tok);
+  return (
+    /^\d+(?:\.\d+)?(?:TB|GB|MB|KB|GHz|MHz|MP|mAh|W|V)s?$/i.test(tok) ||
+    /^\d+-(?:piece|pieces|pack|packs|pcs|set|sets)$/i.test(tok)
+  );
 }
 
 /**
@@ -51,14 +92,14 @@ function extractRawTokens(title: string): string[] {
   }
 
   // Second pass: extract remaining word tokens from unconsumed chars
-  let word = '';
+  let word = "";
   for (let i = 0; i <= lower.length; i++) {
-    const ch = i < lower.length ? lower[i] : '';
+    const ch = i < lower.length ? lower[i] : "";
     if (ch && !consumed[i] && /[a-z0-9]/.test(ch)) {
       word += ch;
     } else if (word) {
       tokens.push(word);
-      word = '';
+      word = "";
     }
   }
 
@@ -77,11 +118,16 @@ function extractRawTokens(title: string): string[] {
  * @param prices  Corresponding total prices (same length as titles).
  *                When omitted, the quartile-spanning check is skipped.
  */
-export function discoverIdentityVocab(titles: string[], prices?: number[]): Set<string> {
+export function discoverIdentityVocab(
+  titles: string[],
+  prices?: number[],
+): Set<string> {
   const vocab = new Set<string>();
 
   // Compute price quartiles when available
-  let q1 = 0, q2 = 0, q3 = 0;
+  let q1 = 0,
+    q2 = 0,
+    q3 = 0;
   const hasPrices = prices && prices.length === titles.length;
   if (hasPrices) {
     const sorted = [...prices!].sort((a, b) => a - b);
@@ -130,7 +176,10 @@ export function discoverIdentityVocab(titles: string[], prices?: number[]): Set<
  * Tokenize a single listing title into weighted token buckets.
  * Results are memoised — call clearTokenizeCache() at the start of each analysis run.
  */
-export function tokenize(title: string, identityVocab: Set<string>): WeightedTokens {
+export function tokenize(
+  title: string,
+  identityVocab: Set<string>,
+): WeightedTokens {
   const cacheKey = title;
   const cached = memoMap.get(cacheKey);
   if (cached) return cached;
@@ -162,9 +211,15 @@ export function tokenize(title: string, identityVocab: Set<string>): WeightedTok
  * Weighted Jaccard similarity between two token sets.
  * Identity overlap dominates (weight 1.0); descriptor overlap is down-weighted (0.3).
  */
-export function weightedSimilarity(a: WeightedTokens, b: WeightedTokens): number {
+export function weightedSimilarity(
+  a: WeightedTokens,
+  b: WeightedTokens,
+): number {
   const identityScore = jaccardSets(new Set(a.identity), new Set(b.identity));
-  const descriptorScore = jaccardSets(new Set(a.descriptors), new Set(b.descriptors));
+  const descriptorScore = jaccardSets(
+    new Set(a.descriptors),
+    new Set(b.descriptors),
+  );
   return identityScore + descriptorScore * 0.3;
 }
 

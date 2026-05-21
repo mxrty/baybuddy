@@ -23,8 +23,8 @@ import type {
   ClusterOptions,
   GroupStatistics,
   WeightedTokens,
-} from './types';
-import { weightedSimilarity } from './tokenize';
+} from "./types";
+import { weightedSimilarity } from "./tokenize";
 
 const DEFAULT_THRESHOLD = 0.35;
 const MIN_GROUP_TO_SPLIT = 6;
@@ -35,8 +35,15 @@ const CENTROID_MAJORITY = 0.55;
 const CENTROID_CORE = 0.6;
 
 const EMPTY_STATS: GroupStatistics = {
-  count: 0, min: 0, max: 0, mean: 0, median: 0,
-  p25: 0, p75: 0, stdDev: 0, iqr: 0,
+  count: 0,
+  min: 0,
+  max: 0,
+  mean: 0,
+  median: 0,
+  p25: 0,
+  p75: 0,
+  stdDev: 0,
+  iqr: 0,
 };
 
 let _idCounter = 0;
@@ -80,7 +87,7 @@ function addToState(state: CentroidState, item: ParsedListing): void {
 }
 
 function removeFromState(state: CentroidState, item: ParsedListing): void {
-  state.items = state.items.filter(i => i !== item);
+  state.items = state.items.filter((i) => i !== item);
   for (const tok of item.tokens.identity) {
     const c = (state.identityCounts.get(tok) ?? 0) - 1;
     if (c <= 0) state.identityCounts.delete(tok);
@@ -115,12 +122,14 @@ function matchScore(item: ParsedListing, state: CentroidState): number {
 function makeLabel(state: CentroidState): string {
   const n = state.items.length;
   const threshold = Math.max(1, Math.ceil(n * 0.4));
-  return [...state.identityCounts.entries()]
-    .filter(([, c]) => c >= threshold)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([t]) => t)
-    .join(' ') || 'group';
+  return (
+    [...state.identityCounts.entries()]
+      .filter(([, c]) => c >= threshold)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([t]) => t)
+      .join(" ") || "group"
+  );
 }
 
 function splitHierarchical(
@@ -137,7 +146,7 @@ function splitHierarchical(
     parent: parentId,
     depth,
     stats: { ...EMPTY_STATS, count: state.items.length },
-    confidence: 'insufficient',
+    confidence: "insufficient",
     relevanceScore: 0,
   };
 
@@ -162,13 +171,23 @@ function splitHierarchical(
   let bestCount = 0;
 
   for (const [tok, cnt] of state.identityCounts) {
-    if (!coreTokens.has(tok) && cnt >= MIN_CHILD_SIZE && (n - cnt) >= MIN_CHILD_SIZE && cnt > bestCount) {
+    if (
+      !coreTokens.has(tok) &&
+      cnt >= MIN_CHILD_SIZE &&
+      n - cnt >= MIN_CHILD_SIZE &&
+      cnt > bestCount
+    ) {
       bestToken = tok;
       bestCount = cnt;
     }
   }
   for (const [tok, cnt] of state.descriptorCounts) {
-    if (!coreTokens.has(tok) && cnt >= MIN_CHILD_SIZE && (n - cnt) >= MIN_CHILD_SIZE && cnt > bestCount) {
+    if (
+      !coreTokens.has(tok) &&
+      cnt >= MIN_CHILD_SIZE &&
+      n - cnt >= MIN_CHILD_SIZE &&
+      cnt > bestCount
+    ) {
       bestToken = tok;
       bestCount = cnt;
     }
@@ -179,7 +198,9 @@ function splitHierarchical(
   const withTok: ParsedListing[] = [];
   const withoutTok: ParsedListing[] = [];
   for (const item of state.items) {
-    const has = item.tokens.identity.includes(bestToken) || item.tokens.descriptors.includes(bestToken);
+    const has =
+      item.tokens.identity.includes(bestToken) ||
+      item.tokens.descriptors.includes(bestToken);
     if (has) withTok.push(item);
     else withoutTok.push(item);
   }
@@ -204,7 +225,7 @@ export function clusterListings(
 
   // Only cluster non-junk, non-excluded listings
   const eligible = listings
-    .filter(l => !l.isJunk && !l.isExcluded)
+    .filter((l) => !l.isJunk && !l.isExcluded)
     // Sort simpler items first so they seed clusters; richer variants join by shared tokens
     .sort((a, b) => a.tokens.identity.length - b.tokens.identity.length);
 
@@ -237,7 +258,7 @@ export function clusterListings(
     let changed = false;
 
     for (const item of eligible) {
-      const curIdx = states.findIndex(s => s.items.includes(item));
+      const curIdx = states.findIndex((s) => s.items.includes(item));
       if (curIdx < 0) continue;
 
       let bestIdx = curIdx;
@@ -268,6 +289,6 @@ export function clusterListings(
   }
 
   return states
-    .filter(s => s.items.length > 0)
-    .map(s => splitHierarchical(s, 0, null));
+    .filter((s) => s.items.length > 0)
+    .map((s) => splitHierarchical(s, 0, null));
 }

@@ -34,7 +34,7 @@ export interface PricingGroup {
   parent: string | null;
   depth: number;
   stats: GroupStatistics;
-  confidence: 'high' | 'medium' | 'low' | 'insufficient';
+  confidence: "high" | "medium" | "low" | "insufficient";
   relevanceScore: number;
 }
 
@@ -50,7 +50,7 @@ export interface GroupStatistics {
   iqr: number;
 }
 
-export type PriceRating = 'good' | 'fair' | 'high' | 'no-data';
+export type PriceRating = "good" | "fair" | "high" | "no-data";
 
 export interface ListingAssessment {
   listing: ParsedListing;

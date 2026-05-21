@@ -5,13 +5,23 @@ import type {
   ListingAssessment,
   PriceRating,
   WeightedTokens,
-} from './types';
+} from "./types";
 
 const OUTLIER_MIN_COUNT = 8;
 
 export function computeStats(prices: number[]): GroupStatistics {
   if (prices.length === 0) {
-    return { count: 0, min: 0, max: 0, mean: 0, median: 0, p25: 0, p75: 0, stdDev: 0, iqr: 0 };
+    return {
+      count: 0,
+      min: 0,
+      max: 0,
+      mean: 0,
+      median: 0,
+      p25: 0,
+      p75: 0,
+      stdDev: 0,
+      iqr: 0,
+    };
   }
 
   const sorted = [...prices].sort((a, b) => a - b);
@@ -58,17 +68,17 @@ function removeOutliers(prices: number[]): number[] {
   const iqr = pct(0.75) - pct(0.25);
   const fence = 2 * iqr;
 
-  return prices.filter(p => Math.abs(p - median) <= fence);
+  return prices.filter((p) => Math.abs(p - median) <= fence);
 }
 
 export function assignConfidence(
-  group: Pick<PricingGroup, 'stats'>,
-): 'high' | 'medium' | 'low' | 'insufficient' {
+  group: Pick<PricingGroup, "stats">,
+): "high" | "medium" | "low" | "insufficient" {
   const { count, iqr, median } = group.stats;
-  if (count >= 10 && median > 0 && iqr / median < 0.4) return 'high';
-  if (count >= 5) return 'medium';
-  if (count >= 3) return 'low';
-  return 'insufficient';
+  if (count >= 10 && median > 0 && iqr / median < 0.4) return "high";
+  if (count >= 5) return "medium";
+  if (count >= 3) return "low";
+  return "insufficient";
 }
 
 export function computeGroupStats(group: PricingGroup): void {
@@ -77,16 +87,19 @@ export function computeGroupStats(group: PricingGroup): void {
       computeGroupStats(child);
     }
     // Aggregate stats from children
-    const allPrices = group.items.map(l => l.totalPrice);
+    const allPrices = group.items.map((l) => l.totalPrice);
     group.stats = computeStats(removeOutliers(allPrices));
   } else {
-    const prices = removeOutliers(group.items.map(l => l.totalPrice));
+    const prices = removeOutliers(group.items.map((l) => l.totalPrice));
     group.stats = computeStats(prices);
   }
   group.confidence = assignConfidence(group);
 }
 
-export function computeRelevance(group: PricingGroup, searchTermTokens: WeightedTokens): number {
+export function computeRelevance(
+  group: PricingGroup,
+  searchTermTokens: WeightedTokens,
+): number {
   const centroidIdentity = new Set<string>();
   for (const item of group.items) {
     for (const tok of item.tokens.identity) {
@@ -94,7 +107,9 @@ export function computeRelevance(group: PricingGroup, searchTermTokens: Weighted
     }
   }
 
-  const searchSet = new Set(searchTermTokens.identity.map(t => t.toLowerCase()));
+  const searchSet = new Set(
+    searchTermTokens.identity.map((t) => t.toLowerCase()),
+  );
   if (centroidIdentity.size === 0 || searchSet.size === 0) return 0;
 
   let intersection = 0;
@@ -115,10 +130,10 @@ function findDeepestConfidentGroup(
   // Try children first (deeper = more specific)
   for (const child of group.children) {
     const match = findDeepestConfidentGroup(listing, child);
-    if (match && match.confidence !== 'insufficient') return match;
+    if (match && match.confidence !== "insufficient") return match;
   }
 
-  return group.confidence !== 'insufficient' ? group : null;
+  return group.confidence !== "insufficient" ? group : null;
 }
 
 export function rateListing(
@@ -136,19 +151,27 @@ export function rateListing(
   }
 
   if (!matchedGroup) {
-    return { listing, rating: 'no-data', matchedGroup: null, percentile: null, showBadge: false };
+    return {
+      listing,
+      rating: "no-data",
+      matchedGroup: null,
+      percentile: null,
+      showBadge: false,
+    };
   }
 
   const { totalPrice } = listing;
   const { p25, p75 } = matchedGroup.stats;
 
   let rating: PriceRating;
-  if (totalPrice < p25) rating = 'good';
-  else if (totalPrice > p75) rating = 'high';
-  else rating = 'fair';
+  if (totalPrice < p25) rating = "good";
+  else if (totalPrice > p75) rating = "high";
+  else rating = "fair";
 
-  const prices = matchedGroup.items.map(l => l.totalPrice).sort((a, b) => a - b);
-  const below = prices.filter(p => p < totalPrice).length;
+  const prices = matchedGroup.items
+    .map((l) => l.totalPrice)
+    .sort((a, b) => a - b);
+  const below = prices.filter((p) => p < totalPrice).length;
   const percentile = prices.length > 0 ? below / prices.length : null;
 
   return { listing, rating, matchedGroup, percentile, showBadge: true };
