@@ -448,9 +448,7 @@
     });
   }
 
-  function showSoldStats(retryCount) {
-    if (!isViewingSold()) return;
-
+  function showPriceStats(retryCount) {
     retryCount = retryCount || 0;
 
     const prices = collectPrices();
@@ -538,42 +536,7 @@
     }
   }
 
-  function showStickyIndicator() {
-    if (document.getElementById('bb-sticky-indicator')) return;
 
-    const saved = loadStickyParams();
-    if (!saved || Object.keys(saved).length === 0) return;
-
-    const url = new URL(window.location.href);
-    let appliedCount = 0;
-    Object.keys(saved).forEach(key => {
-      if (url.searchParams.has(key)) appliedCount++;
-    });
-
-    if (appliedCount === 0) return;
-
-    const chip = document.createElement('div');
-    chip.id = 'bb-sticky-indicator';
-    chip.innerHTML = '📌 Sticky filters active (' + appliedCount + ' applied)';
-    Object.assign(chip.style, {
-      position: 'fixed',
-      bottom: '24px',
-      left: '24px',
-      zIndex: '99998',
-      padding: '8px 16px',
-      background: 'linear-gradient(135deg, #0f1117, #161822)',
-      border: '1px solid rgba(54, 101, 243, 0.3)',
-      borderRadius: '50px',
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-      fontSize: '12px',
-      fontWeight: '500',
-      color: '#8b8fa3',
-      boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-      cursor: 'default'
-    });
-
-    document.body.appendChild(chip);
-  }
 
   // ══════════════════════════════════════════════════════════
   // MAIN — Initialisation
@@ -632,15 +595,12 @@
       // Feature 3: Sold Listings overlay button (always visible on search pages)
       createSoldButton();
 
-      // Feature 4: Sold Price Stats
+      // Feature 4: Price Stats (active and sold listings)
       if (settings.soldPriceStats) {
-        showSoldStats();
+        showPriceStats();
       }
 
-      // Feature 5: Sticky indicator
-      if (settings.stickyFilters) {
-        showStickyIndicator();
-      }
+
     });
   }
 
