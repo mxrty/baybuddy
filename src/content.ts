@@ -2,22 +2,11 @@
  * BayBuddy — Content Script
  */
 
-import {
-  detectCurrency,
-  parsePriceText,
-  tokenizeTitle,
-  jaccardSimilarity,
-  clusterListings,
-  calculateGroupStats,
-  ListingItem,
-  Cluster,
-  GroupStats,
-  Settings
-} from './utils';
-
-type BadgeData =
-  | { type: 'excluded' }
-  | { type: 'good' | 'fair' | 'high'; mean: number };
+import { detectCurrency, Settings } from './utils';
+import { analysePricing } from './pricing';
+import type { RawListing } from './pricing';
+import { renderBadges } from './ui/badge';
+import { renderDashboard } from './ui/dashboard';
 
 (function () {
   'use strict';
@@ -258,236 +247,31 @@ type BadgeData =
   // FEATURE 4: Price Intelligence Badges
   // ══════════════════════════════════════════════════════════
 
-  function formatPrice(value: number, currency: string): string {
-    return currency + value.toFixed(2);
-  }
-
-  function createOverviewPanel(stats: GroupStats | null, clusters: Cluster[], currency: string, settings: Settings) {
-    let panel = document.getElementById('bb-overview-panel');
-    let needsAppend = false;
-
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'bb-overview-panel';
-      needsAppend = true;
-    }
-
-    if (!stats) {
-      if (panel.parentNode) panel.remove();
-      return;
-    }
-
-    let groupingsHtml = '';
-    clusters.forEach((c, i) => {
-      const cStats = calculateGroupStats(c.items, settings.excludeBroken);
-      if (cStats) {
-        groupingsHtml += `
-          <div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.03); border-radius: 4px;">
-            <strong>Group ${i + 1}</strong> (${cStats.validItems.length} items) - Avg: ${formatPrice(cStats.mean, currency)}
-            <ul style="margin: 4px 0 0; padding-left: 20px; color: #575b6e;">
-              ${cStats.validItems.map((item: any) => {
-                const linkEl = item.card.querySelector('a.s-item__link, a.s-card__link');
-                let href = '#';
-                if (linkEl) {
-                  href = linkEl.getAttribute('href') || linkEl.href || '#';
-                  if (href !== '#' && !href.startsWith('http')) {
-                    href = window.location.origin + (href.startsWith('/') ? '' : '/') + href;
-                  }
-                }
-                return `<li><a href="${href}" target="_blank" style="color:inherit; text-decoration:none;">${item.title.substring(0, 50)}... (${formatPrice(item.price, currency)})</a></li>`;
-              }).join('')}
-            </ul>
-          </div>
-        `;
-      }
+  function collectRawListings(): RawListing[] {
+    const cards = getListingCards();
+    const raw: RawListing[] = [];
+    cards.forEach(card => {
+      if (card.classList && (card.classList.contains('s-item__pl-on-bottom') || card.classList.contains('s-card__pl-on-bottom'))) return;
+      const titleEl = card.querySelector('.s-item__title, .s-card__title');
+      const priceEl = card.querySelector('.s-item__price, .s-card__price');
+      const conditionEl = card.querySelector('.s-item__subtitle, .s-item__secondary-info, .SECONDARY_INFO, .s-card__subtitle, .s-item__condition');
+      const linkEl = card.querySelector('a.s-item__link, a.s-card__link') as HTMLAnchorElement | null;
+      if (!titleEl || !priceEl) return;
+      raw.push({
+        title: titleEl.textContent || '',
+        priceText: priceEl.textContent || '',
+        condition: conditionEl?.textContent || '',
+        link: linkEl?.href || linkEl?.getAttribute('href') || '',
+        deliveryText: getDeliveryText(card),
+      });
     });
-
-    const html = `
-      <details style="
-        margin: 16px auto;
-        background: rgba(54, 101, 243, 0.05);
-        border: 1px solid rgba(54, 101, 243, 0.2);
-        border-radius: 8px;
-        font-family: 'Inter', -apple-system, sans-serif;
-        color: #e8eaf0;
-      ">
-        <summary style="padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; list-style: none;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:16px;">📊</span>
-            <span style="font-size:13px; font-weight:600; color: #161822;">Price Intelligence</span>
-            <span style="font-size:12px; color:#575b6e; margin-left:4px;">${stats.validItems.length} valid items in ${clusters.length} groups</span>
-          </div>
-          <div style="display:flex; gap:16px; font-size:13px; align-items: center;">
-            <div><span style="color:#575b6e;">Overall Avg:</span> <strong style="color:#3665f3;">${formatPrice(stats.mean, currency)}</strong></div>
-            <span style="color: #3665f3; font-size: 10px;">▼</span>
-          </div>
-        </summary>
-        <div style="padding: 0 16px 16px; color: #161822; font-size: 12px;">
-          ${groupingsHtml}
-        </div>
-      </details>
-    `;
-
-    if (panel.innerHTML !== html) {
-      panel.innerHTML = html;
-    }
-
-    if (needsAppend) {
-      const resultsContainer =
-        document.querySelector('.srp-results') ||
-        document.querySelector('#srp-river-results') ||
-        document.querySelector('[id*="ResultSet"]') ||
-        document.querySelector('.srp-river-main');
-
-      if (resultsContainer && resultsContainer.parentNode) {
-        resultsContainer.parentNode.insertBefore(panel, resultsContainer);
-      } else {
-        const main = document.querySelector('#mainContent') || document.querySelector('#srp-river') || document.body;
-        main.insertBefore(panel, main.firstChild);
-      }
-    }
+    return raw;
   }
 
-  function getListingData(card: Element): ListingItem | null {
-    if (card.classList && (card.classList.contains('s-item__pl-on-bottom') || card.classList.contains('s-card__pl-on-bottom'))) return null;
-
-    const titleEl = card.querySelector('.s-item__title, .s-card__title');
-    const priceEl = card.querySelector('.s-item__price, .s-card__price');
-    const subtitleEl = card.querySelector('.s-item__subtitle, .s-item__secondary-info, .SECONDARY_INFO, .s-card__subtitle, .s-item__condition');
-
-    if (!titleEl || !priceEl) return null;
-
-    const title = titleEl.textContent || '';
-    const price = parsePriceText(priceEl.textContent || '');
-    const condition = subtitleEl && subtitleEl.textContent ? subtitleEl.textContent.toLowerCase() : '';
-
-    return { card, title, price, condition, tokens: tokenizeTitle(title) };
-  }
-
-  function injectBadge(item: ListingItem, badgeData: BadgeData, currency: string, clusterStats?: GroupStats) {
-    if (!item.card) return;
-    let badgeContainer = item.card.querySelector('.bb-badge-container') as HTMLElement;
-    let needsAppend = false;
-    
-    if (!badgeContainer) {
-      badgeContainer = document.createElement('details');
-      badgeContainer.className = 'bb-badge-container';
-      badgeContainer.style.cssText = `
-        display: inline-block;
-        position: relative;
-        margin-left: 8px;
-      `;
-      
-      const summary = document.createElement('summary');
-      summary.className = 'bb-price-badge';
-      summary.style.cssText = `
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 12px;
-        font-weight: 500;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-family: 'Inter', -apple-system, sans-serif;
-        cursor: pointer;
-        list-style: none;
-      `;
-      
-      const dropdown = document.createElement('div');
-      dropdown.className = 'bb-badge-dropdown';
-      dropdown.style.cssText = `
-        display: block;
-        margin-top: 8px;
-        font-size: 11px;
-        color: #575b6e;
-        background: #fff;
-        border: 1px solid #ccc;
-        padding: 8px;
-        border-radius: 4px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        width: max-content;
-        max-width: 300px;
-        white-space: normal;
-      `;
-      
-      badgeContainer.appendChild(summary);
-      badgeContainer.appendChild(dropdown);
-      needsAppend = true;
-    }
-
-    const badge = badgeContainer.querySelector('.bb-price-badge') as HTMLElement;
-    const dropdown = badgeContainer.querySelector('.bb-badge-dropdown') as HTMLElement;
-
-    let targetBg: string;
-    let targetColor: string;
-    let targetHtml: string;
-
-    if (badgeData.type === 'excluded') {
-      targetBg = 'rgba(139, 143, 163, 0.1)';
-      targetColor = '#8b8fa3';
-      targetHtml = `⚪ Excluded (parts)`;
-    } else {
-      const avgStr = currency + badgeData.mean.toFixed(2);
-      if (badgeData.type === 'good') {
-        targetBg = 'rgba(92, 184, 92, 0.1)';
-        targetColor = '#5cb85c';
-        targetHtml = `🟢 Good (avg ${avgStr})`;
-      } else if (badgeData.type === 'fair') {
-        targetBg = 'rgba(240, 173, 78, 0.1)';
-        targetColor = '#f0ad4e';
-        targetHtml = `🟡 Fair (avg ${avgStr})`;
-      } else {
-        targetBg = 'rgba(217, 83, 79, 0.1)';
-        targetColor = '#d9534f';
-        targetHtml = `🔴 Above avg (avg ${avgStr})`;
-      }
-    }
-
-    if (badge.innerHTML !== targetHtml) {
-      badge.style.background = targetBg;
-      badge.style.color = targetColor;
-      badge.innerHTML = targetHtml;
-    }
-    
-    if (clusterStats) {
-      const otherItems = clusterStats.validItems.filter((i: any) => i.card !== item.card);
-      dropdown.innerHTML = `
-        <strong>Comparable items:</strong>
-        <ul style="margin: 4px 0 0; padding-left: 16px;">
-          ${otherItems.map((i: any) => {
-            const linkEl = i.card.querySelector('a.s-item__link, a.s-card__link');
-            let href = '#';
-            if (linkEl) {
-              href = linkEl.getAttribute('href') || linkEl.href || '#';
-              if (href !== '#' && !href.startsWith('http')) {
-                href = window.location.origin + (href.startsWith('/') ? '' : '/') + href;
-              }
-            }
-            return `<li><a href="${href}" target="_blank" style="color:inherit; text-decoration:none;">${i.title.substring(0, 40)}... (${formatPrice(i.price, currency)})</a></li>`;
-          }).join('')}
-        </ul>
-      `;
-      if (otherItems.length === 0) {
-        dropdown.innerHTML = `<em>No other comparable items</em>`;
-      }
-    } else {
-      dropdown.style.display = 'none';
-      badge.style.cursor = 'default';
-    }
-
-    if (needsAppend) {
-      const priceContainer = item.card.querySelector('.s-item__price, .s-card__price');
-      if (priceContainer) {
-        priceContainer.appendChild(badgeContainer);
-      }
-    }
-  }
-
-  let fetchSoldPromise: Promise<ListingItem[]> | null = null;
   let isApplyingPriceIntelligence = false;
   let needsReapply = false;
 
-  async function applyPriceIntelligence(settings: Settings, retryCount = 0) {
+  function applyPriceIntelligence(settings: Settings, retryCount = 0) {
     if (isApplyingPriceIntelligence) {
       needsReapply = true;
       return;
@@ -496,128 +280,31 @@ type BadgeData =
 
     try {
       const cards = getListingCards();
-      
+
       if (cards.length === 0 && retryCount < 5) {
         isApplyingPriceIntelligence = false;
         setTimeout(() => applyPriceIntelligence(settings, retryCount + 1), 500);
         return;
       }
 
-    const currency = detectCurrency(window.location.host);
-    const activeListings: ListingItem[] = [];
-    cards.forEach(c => {
-      const data = getListingData(c);
-      if (data) activeListings.push(data);
-    });
+      const rawListings = collectRawListings();
+      const searchTerm = new URL(window.location.href).searchParams.get('_nkw') || '';
+      const result = analysePricing(rawListings, searchTerm, {
+        enabled: true,
+        similarityThreshold: settings.confidenceThreshold / 100,
+      });
 
-    let referenceListings: ListingItem[] = [];
-
-    if (isViewingSold()) {
-      referenceListings = activeListings;
-    } else {
-      if (!fetchSoldPromise) {
-        fetchSoldPromise = (async () => {
-          try {
-            const url = new URL(window.location.href);
-            url.searchParams.set('LH_Sold', '1');
-            url.searchParams.set('LH_Complete', '1');
-            
-            const response = await fetch(url.toString());
-            const text = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(text, 'text/html');
-            
-            const selectors = [
-              'li.s-card',
-              '.s-card',
-              'li.s-item',
-              '.srp-results .s-item',
-              'ul.srp-results > li',
-              '[data-viewport]'
-            ];
-            
-            let soldCards: Element[] = [];
-            for (const sel of selectors) {
-              const found = doc.querySelectorAll(sel);
-              if (found.length > 0) {
-                soldCards = Array.from(found);
-                break;
-              }
-            }
-            
-            const items: ListingItem[] = [];
-            soldCards.forEach(c => {
-              const data = getListingData(c);
-              if (data) items.push(data);
-            });
-            return items;
-          } catch (e) {
-            console.error('BayBuddy: Failed to fetch sold listings', e);
-            return activeListings;
-          }
-        })();
+      const root = document.documentElement as HTMLElement;
+      renderBadges(result, root);
+      renderDashboard(result, root);
+    } finally {
+      isApplyingPriceIntelligence = false;
+      if (needsReapply) {
+        needsReapply = false;
+        setTimeout(() => applyPriceIntelligence(settings), 50);
       }
-      
-      referenceListings = await fetchSoldPromise;
-      if (referenceListings.length === 0) {
-        referenceListings = activeListings;
-      }
-    }
-
-    const clusters = clusterListings(referenceListings, settings.confidenceThreshold);
-    const overallStats = calculateGroupStats(referenceListings, settings.excludeBroken);
-
-    createOverviewPanel(overallStats, clusters, currency, settings);
-
-    for (const item of activeListings) {
-      if (!item.price) continue;
-
-      let isBroken = false;
-      if (settings.excludeBroken) {
-        const cond = item.condition;
-        if (cond.includes('parts') || cond.includes('repair') || cond.includes('faulty') || cond.includes('broken')) {
-          isBroken = true;
-        }
-      }
-
-      if (isBroken) {
-        injectBadge(item, { type: 'excluded' }, currency);
-        continue;
-      }
-      
-      let bestCluster: Cluster | null = null;
-      let bestScore = -1;
-      const threshold = settings.confidenceThreshold / 100;
-
-      for (const cluster of clusters) {
-        const score = jaccardSimilarity(item.tokens, cluster.items[0].tokens);
-        if (score > bestScore) {
-          bestScore = score;
-          bestCluster = cluster;
-        }
-      }
-
-      if (bestScore >= threshold && bestCluster) {
-        const stats = calculateGroupStats(bestCluster.items, settings.excludeBroken);
-        if (stats) {
-          const diff = item.price - stats.mean;
-          if (diff < -0.5 * stats.stdDev) {
-            injectBadge(item, { type: 'good', mean: stats.mean }, currency, stats);
-          } else if (diff > 0.5 * stats.stdDev) {
-            injectBadge(item, { type: 'high', mean: stats.mean }, currency, stats);
-          } else {
-          }
-        }
-      }
-    } // End of for (const item of activeListings)
-  } finally {
-    isApplyingPriceIntelligence = false;
-    if (needsReapply) {
-      needsReapply = false;
-      setTimeout(() => applyPriceIntelligence(settings), 50);
     }
   }
-}
 
   // ══════════════════════════════════════════════════════════
   // FEATURE 5: Sticky Filters
