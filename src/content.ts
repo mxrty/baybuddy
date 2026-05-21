@@ -477,9 +477,13 @@ import {
 
   let fetchSoldPromise: Promise<ListingItem[]> | null = null;
   let isApplyingPriceIntelligence = false;
+  let needsReapply = false;
 
   async function applyPriceIntelligence(settings: any, retryCount = 0) {
-    if (isApplyingPriceIntelligence) return;
+    if (isApplyingPriceIntelligence) {
+      needsReapply = true;
+      return;
+    }
     isApplyingPriceIntelligence = true;
 
     try {
@@ -604,6 +608,10 @@ import {
     } // End of for (const item of activeListings)
   } finally {
     isApplyingPriceIntelligence = false;
+    if (needsReapply) {
+      needsReapply = false;
+      setTimeout(() => applyPriceIntelligence(settings), 50);
+    }
   }
 }
 

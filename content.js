@@ -10,13 +10,14 @@
   }
   function parsePriceText(text) {
     let cleaned = text.replace(/[£$€,]/g, "").replace(/AU\s*/i, "").replace(/US\s*/i, "").replace(/C\s*/i, "").trim();
-    if (cleaned.includes(" to ")) {
-      const parts = cleaned.split(" to ");
-      const low = parseFloat(parts[0].trim());
-      const high = parseFloat(parts[1].trim());
+    const match = cleaned.match(/[\d]+(\.[\d]+)?/g);
+    if (!match) return null;
+    if (cleaned.includes(" to ") && match.length >= 2) {
+      const low = parseFloat(match[0]);
+      const high = parseFloat(match[1]);
       if (!isNaN(low) && !isNaN(high)) return (low + high) / 2;
     }
-    const val = parseFloat(cleaned);
+    const val = parseFloat(match[0]);
     return isNaN(val) ? null : val;
   }
   function tokenizeTitle(title) {
@@ -449,8 +450,12 @@
     }
     let fetchSoldPromise = null;
     let isApplyingPriceIntelligence = false;
+    let needsReapply = false;
     async function applyPriceIntelligence(settings, retryCount = 0) {
-      if (isApplyingPriceIntelligence) return;
+      if (isApplyingPriceIntelligence) {
+        needsReapply = true;
+        return;
+      }
       isApplyingPriceIntelligence = true;
       try {
         const cards = getListingCards();
@@ -555,6 +560,10 @@
         }
       } finally {
         isApplyingPriceIntelligence = false;
+        if (needsReapply) {
+          needsReapply = false;
+          setTimeout(() => applyPriceIntelligence(settings), 50);
+        }
       }
     }
     const STICKY_STORAGE_KEY = "bb_stickyParams";
