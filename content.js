@@ -448,106 +448,113 @@
       }
     }
     let fetchSoldPromise = null;
+    let isApplyingPriceIntelligence = false;
     async function applyPriceIntelligence(settings, retryCount = 0) {
-      const cards = getListingCards();
-      if (cards.length === 0 && retryCount < 5) {
-        setTimeout(() => applyPriceIntelligence(settings, retryCount + 1), 500);
-        return;
-      }
-      const currency = detectCurrency(window.location.host);
-      const activeListings = [];
-      cards.forEach((c) => {
-        const data = getListingData(c);
-        if (data) activeListings.push(data);
-      });
-      let referenceListings = [];
-      if (isViewingSold()) {
-        referenceListings = activeListings;
-      } else {
-        if (!fetchSoldPromise) {
-          fetchSoldPromise = (async () => {
-            try {
-              const url = new URL(window.location.href);
-              url.searchParams.set("LH_Sold", "1");
-              url.searchParams.set("LH_Complete", "1");
-              const response = await fetch(url.toString());
-              const text = await response.text();
-              const parser = new DOMParser();
-              const doc = parser.parseFromString(text, "text/html");
-              const selectors = [
-                "li.s-card",
-                ".s-card",
-                "li.s-item",
-                ".srp-results .s-item",
-                "ul.srp-results > li",
-                "[data-viewport]"
-              ];
-              let soldCards = [];
-              for (const sel of selectors) {
-                const found = doc.querySelectorAll(sel);
-                if (found.length > 0) {
-                  soldCards = Array.from(found);
-                  break;
-                }
-              }
-              const items = [];
-              soldCards.forEach((c) => {
-                const data = getListingData(c);
-                if (data) items.push(data);
-              });
-              return items;
-            } catch (e) {
-              console.error("BayBuddy: Failed to fetch sold listings", e);
-              return activeListings;
-            }
-          })();
+      if (isApplyingPriceIntelligence) return;
+      isApplyingPriceIntelligence = true;
+      try {
+        const cards = getListingCards();
+        if (cards.length === 0 && retryCount < 5) {
+          isApplyingPriceIntelligence = false;
+          setTimeout(() => applyPriceIntelligence(settings, retryCount + 1), 500);
+          return;
         }
-        referenceListings = await fetchSoldPromise;
-        if (referenceListings.length === 0) {
+        const currency = detectCurrency(window.location.host);
+        const activeListings = [];
+        cards.forEach((c) => {
+          const data = getListingData(c);
+          if (data) activeListings.push(data);
+        });
+        let referenceListings = [];
+        if (isViewingSold()) {
           referenceListings = activeListings;
-        }
-      }
-      const clusters = clusterListings(referenceListings, settings.confidenceThreshold);
-      const overallStats = calculateGroupStats(referenceListings, settings.excludeBroken);
-      createOverviewPanel(overallStats, clusters, currency, settings);
-      for (const cluster of clusters) {
-      }
-      for (const item of activeListings) {
-        if (!item.price) continue;
-        let isBroken = false;
-        if (settings.excludeBroken) {
-          const cond = item.condition;
-          if (cond.includes("parts") || cond.includes("repair") || cond.includes("faulty") || cond.includes("broken")) {
-            isBroken = true;
+        } else {
+          if (!fetchSoldPromise) {
+            fetchSoldPromise = (async () => {
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.set("LH_Sold", "1");
+                url.searchParams.set("LH_Complete", "1");
+                const response = await fetch(url.toString());
+                const text = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, "text/html");
+                const selectors = [
+                  "li.s-card",
+                  ".s-card",
+                  "li.s-item",
+                  ".srp-results .s-item",
+                  "ul.srp-results > li",
+                  "[data-viewport]"
+                ];
+                let soldCards = [];
+                for (const sel of selectors) {
+                  const found = doc.querySelectorAll(sel);
+                  if (found.length > 0) {
+                    soldCards = Array.from(found);
+                    break;
+                  }
+                }
+                const items = [];
+                soldCards.forEach((c) => {
+                  const data = getListingData(c);
+                  if (data) items.push(data);
+                });
+                return items;
+              } catch (e) {
+                console.error("BayBuddy: Failed to fetch sold listings", e);
+                return activeListings;
+              }
+            })();
+          }
+          referenceListings = await fetchSoldPromise;
+          if (referenceListings.length === 0) {
+            referenceListings = activeListings;
           }
         }
-        if (isBroken) {
-          injectBadge(item, { type: "excluded" }, currency);
-          continue;
-        }
-        let bestCluster = null;
-        let bestScore = -1;
-        const threshold = settings.confidenceThreshold / 100;
+        const clusters = clusterListings(referenceListings, settings.confidenceThreshold);
+        const overallStats = calculateGroupStats(referenceListings, settings.excludeBroken);
+        createOverviewPanel(overallStats, clusters, currency, settings);
         for (const cluster of clusters) {
-          const score = jaccardSimilarity(item.tokens, cluster.items[0].tokens);
-          if (score > bestScore) {
-            bestScore = score;
-            bestCluster = cluster;
-          }
         }
-        if (bestScore >= threshold && bestCluster) {
-          const stats = calculateGroupStats(bestCluster.items, settings.excludeBroken);
-          if (stats) {
-            const diff = item.price - stats.mean;
-            if (diff < -0.5 * stats.stdDev) {
-              injectBadge(item, { type: "good", mean: stats.mean }, currency, stats);
-            } else if (diff > 0.5 * stats.stdDev) {
-              injectBadge(item, { type: "high", mean: stats.mean }, currency, stats);
-            } else {
-              injectBadge(item, { type: "fair", mean: stats.mean }, currency, stats);
+        for (const item of activeListings) {
+          if (!item.price) continue;
+          let isBroken = false;
+          if (settings.excludeBroken) {
+            const cond = item.condition;
+            if (cond.includes("parts") || cond.includes("repair") || cond.includes("faulty") || cond.includes("broken")) {
+              isBroken = true;
+            }
+          }
+          if (isBroken) {
+            injectBadge(item, { type: "excluded" }, currency);
+            continue;
+          }
+          let bestCluster = null;
+          let bestScore = -1;
+          const threshold = settings.confidenceThreshold / 100;
+          for (const cluster of clusters) {
+            const score = jaccardSimilarity(item.tokens, cluster.items[0].tokens);
+            if (score > bestScore) {
+              bestScore = score;
+              bestCluster = cluster;
+            }
+          }
+          if (bestScore >= threshold && bestCluster) {
+            const stats = calculateGroupStats(bestCluster.items, settings.excludeBroken);
+            if (stats) {
+              const diff = item.price - stats.mean;
+              if (diff < -0.5 * stats.stdDev) {
+                injectBadge(item, { type: "good", mean: stats.mean }, currency, stats);
+              } else if (diff > 0.5 * stats.stdDev) {
+                injectBadge(item, { type: "high", mean: stats.mean }, currency, stats);
+              } else {
+              }
             }
           }
         }
+      } finally {
+        isApplyingPriceIntelligence = false;
       }
     }
     const STICKY_STORAGE_KEY = "bb_stickyParams";
@@ -625,7 +632,7 @@
             for (const mutation of mutations) {
               for (const node of Array.from(mutation.addedNodes)) {
                 const el = node.nodeType === 1 ? node : node.parentNode;
-                if (el && el.closest && el.closest("#bb-overview-panel, .bb-price-badge")) {
+                if (el && el.closest && el.closest("#bb-overview-panel, .bb-badge-container, .bb-price-badge")) {
                   continue;
                 }
                 hasNewNodes = true;

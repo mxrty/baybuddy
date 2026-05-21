@@ -476,14 +476,20 @@ import {
   }
 
   let fetchSoldPromise: Promise<ListingItem[]> | null = null;
+  let isApplyingPriceIntelligence = false;
 
   async function applyPriceIntelligence(settings: any, retryCount = 0) {
-    const cards = getListingCards();
-    
-    if (cards.length === 0 && retryCount < 5) {
-      setTimeout(() => applyPriceIntelligence(settings, retryCount + 1), 500);
-      return;
-    }
+    if (isApplyingPriceIntelligence) return;
+    isApplyingPriceIntelligence = true;
+
+    try {
+      const cards = getListingCards();
+      
+      if (cards.length === 0 && retryCount < 5) {
+        isApplyingPriceIntelligence = false;
+        setTimeout(() => applyPriceIntelligence(settings, retryCount + 1), 500);
+        return;
+      }
 
     const currency = detectCurrency(window.location.host);
     const activeListings: ListingItem[] = [];
@@ -592,12 +598,14 @@ import {
           } else if (diff > 0.5 * stats.stdDev) {
             injectBadge(item, { type: 'high', mean: stats.mean }, currency, stats);
           } else {
-            injectBadge(item, { type: 'fair', mean: stats.mean }, currency, stats);
           }
         }
       }
-    }
+    } // End of for (const item of activeListings)
+  } finally {
+    isApplyingPriceIntelligence = false;
   }
+}
 
   // ══════════════════════════════════════════════════════════
   // FEATURE 5: Sticky Filters
@@ -711,7 +719,7 @@ import {
           for (const mutation of mutations) {
             for (const node of Array.from(mutation.addedNodes)) {
               const el = node.nodeType === 1 ? (node as Element) : (node.parentNode as Element);
-              if (el && el.closest && el.closest('#bb-overview-panel, .bb-price-badge')) {
+              if (el && el.closest && el.closest('#bb-overview-panel, .bb-badge-container, .bb-price-badge')) {
                 continue;
               }
               hasNewNodes = true;
