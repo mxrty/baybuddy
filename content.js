@@ -59,11 +59,13 @@
   // ══════════════════════════════════════════════════════════
 
   function getListingCards() {
+    // eBay uses .s-card (new) or .s-item (legacy) for listing cards
     const selectors = [
+      'li.s-card',
+      '.s-card',
       'li.s-item',
       '.srp-results .s-item',
       'ul.srp-results > li',
-      '.s-card',
       '[data-viewport]'
     ];
 
@@ -76,7 +78,10 @@
   }
 
   function getDeliveryText(card) {
+    // Try both new (.s-card__) and legacy (.s-item__) selectors
     const deliverySelectors = [
+      '.s-card__shipping',
+      '.s-card__delivery',
       '.s-item__shipping',
       '.s-item__localDelivery',
       '.s-item__delivery',
@@ -98,8 +103,9 @@
       });
     }
 
+    // Fallback: scan all spans for delivery-related keywords
     if (deliveryText.trim().length === 0) {
-      const allSpans = card.querySelectorAll('span, .s-item__detail');
+      const allSpans = card.querySelectorAll('span, .s-item__detail, .s-card__detail');
       allSpans.forEach(el => {
         const text = el.textContent.trim().toLowerCase();
         if (
@@ -130,7 +136,8 @@
 
   function processCard(card) {
     if (card.hasAttribute(HIDDEN_ATTR)) return;
-    if (card.classList && card.classList.contains('s-item__pl-on-bottom')) return;
+    // Skip template/placeholder items
+    if (card.classList && (card.classList.contains('s-item__pl-on-bottom') || card.classList.contains('s-card__pl-on-bottom'))) return;
 
     if (isCollectionOnly(card)) {
       card.style.display = 'none';
@@ -246,15 +253,15 @@
   // ══════════════════════════════════════════════════════════
 
   function detectCurrency() {
-    const priceEl = document.querySelector('.s-item__price');
+    const priceEl = document.querySelector('.s-card__price, .s-item__price');
     if (!priceEl) return '£';
     const text = priceEl.textContent.trim();
-    if (text.startsWith('$'))     return '$';
-    if (text.startsWith('AU $'))  return 'AU $';
-    if (text.startsWith('C $'))   return 'C $';
-    if (text.startsWith('US $'))  return 'US $';
-    if (text.startsWith('€'))     return '€';
-    if (text.startsWith('£'))     return '£';
+    if (text.includes('AU $'))  return 'AU $';
+    if (text.includes('C $'))   return 'C $';
+    if (text.includes('US $'))  return 'US $';
+    if (text.startsWith('$'))   return '$';
+    if (text.startsWith('€'))   return '€';
+    if (text.startsWith('£'))   return '£';
     // Try to find currency symbol anywhere
     const match = text.match(/[£$€]/);
     return match ? match[0] : '£';
@@ -277,13 +284,14 @@
   }
 
   function collectPrices() {
-    const priceEls = document.querySelectorAll('.s-item__price');
+    // Support both new and legacy price selectors
+    const priceEls = document.querySelectorAll('.s-card__price, .s-item__price');
     const prices = [];
 
     priceEls.forEach(el => {
-      // Skip the template item
-      const card = el.closest('.s-item');
-      if (card && card.classList.contains('s-item__pl-on-bottom')) return;
+      // Skip template/placeholder items
+      const card = el.closest('.s-card, .s-item');
+      if (card && (card.classList.contains('s-item__pl-on-bottom') || card.classList.contains('s-card__pl-on-bottom'))) return;
 
       const price = parsePriceText(el.textContent);
       if (price !== null && price > 0) {
@@ -423,13 +431,14 @@
     const resultsContainer =
       document.querySelector('.srp-results') ||
       document.querySelector('#srp-river-results') ||
-      document.querySelector('[id*="ResultSet"]');
+      document.querySelector('[id*="ResultSet"]') ||
+      document.querySelector('.srp-river-main');
 
     if (resultsContainer) {
       resultsContainer.parentNode.insertBefore(panel, resultsContainer);
     } else {
       // Fallback: insert at top of main content
-      const main = document.querySelector('#mainContent') || document.body;
+      const main = document.querySelector('#mainContent') || document.querySelector('#srp-river') || document.body;
       main.insertBefore(panel, main.firstChild);
     }
 
@@ -439,11 +448,22 @@
     });
   }
 
-  function showSoldStats() {
+  function showSoldStats(retryCount) {
     if (!isViewingSold()) return;
+
+    retryCount = retryCount || 0;
 
     const prices = collectPrices();
     const stats = calculateStats(prices);
+
+    // Items may not have loaded yet — retry up to 5 times
+    if (!stats && retryCount < 5) {
+      setTimeout(function () {
+        showSoldStats(retryCount + 1);
+      }, 500 * (retryCount + 1));
+      return;
+    }
+
     if (!stats) return;
 
     const currency = detectCurrency();
@@ -586,6 +606,7 @@
         const resultsContainer =
           document.querySelector('.srp-results') ||
           document.querySelector('#srp-river-results') ||
+          document.querySelector('.srp-river-main') ||
           document.querySelector('[id*="ResultSet"]') ||
           document.body;
 
