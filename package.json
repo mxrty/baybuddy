@@ -5,6 +5,7 @@
   "main": "content.js",
   "scripts": {
     "test": "jest",
+    "test:pricing": "jest src/pricing",
     "build": "esbuild src/content.ts --bundle --outfile=content.js && esbuild src/popup.ts --bundle --outfile=popup.js && tailwindcss -i src/popup.css -o popup.css --minify",
     "watch:content": "esbuild src/content.ts --bundle --outfile=content.js --watch",
     "watch:popup": "esbuild src/popup.ts --bundle --outfile=popup.js --watch",
