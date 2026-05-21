@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BayBuddy",
-  "version": "2.0.0",
+  "version": "0.1.0",
   "description": "Your smart eBay companion — hide collection-only listings, filter by location, search sold items, and view price analytics.",
   "permissions": [
     "storage",
