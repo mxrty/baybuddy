@@ -1,3 +1,12 @@
+export interface Settings {
+  hideCollectionOnly: boolean;
+  localItemsOnly: boolean;
+  priceBadges: boolean;
+  excludeBroken: boolean;
+  stickyFilters: boolean;
+  confidenceThreshold: number;
+}
+
 export function detectCurrency(host: string): string {
   if (host.includes('ebay.co.uk')) return '£';
   if (host.includes('ebay.com.au')) return 'AU $';

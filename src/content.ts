@@ -10,8 +10,14 @@ import {
   clusterListings,
   calculateGroupStats,
   ListingItem,
-  Cluster
+  Cluster,
+  GroupStats,
+  Settings
 } from './utils';
+
+type BadgeData =
+  | { type: 'excluded' }
+  | { type: 'good' | 'fair' | 'high'; mean: number };
 
 (function () {
   'use strict';
@@ -78,7 +84,7 @@ import {
     return [];
   }
 
-  function getDeliveryText(card) {
+  function getDeliveryText(card: Element) {
     // Try both new (.s-card__) and legacy (.s-item__) selectors
     const deliverySelectors = [
       '.s-card__shipping',
@@ -124,7 +130,7 @@ import {
     return deliveryText;
   }
 
-  function isCollectionOnly(card) {
+  function isCollectionOnly(card: Element) {
     const text = getDeliveryText(card);
     if (!text.trim()) return false;
 
@@ -256,7 +262,7 @@ import {
     return currency + value.toFixed(2);
   }
 
-  function createOverviewPanel(stats: any, clusters: any[], currency: string, settings: any) {
+  function createOverviewPanel(stats: GroupStats | null, clusters: Cluster[], currency: string, settings: Settings) {
     let panel = document.getElementById('bb-overview-panel');
     let needsAppend = false;
 
@@ -358,7 +364,7 @@ import {
     return { card, title, price, condition, tokens: tokenizeTitle(title) };
   }
 
-  function injectBadge(item: ListingItem, badgeData: any, currency: string, clusterStats?: any) {
+  function injectBadge(item: ListingItem, badgeData: BadgeData, currency: string, clusterStats?: GroupStats) {
     if (!item.card) return;
     let badgeContainer = item.card.querySelector('.bb-badge-container') as HTMLElement;
     let needsAppend = false;
@@ -412,7 +418,9 @@ import {
     const badge = badgeContainer.querySelector('.bb-price-badge') as HTMLElement;
     const dropdown = badgeContainer.querySelector('.bb-badge-dropdown') as HTMLElement;
 
-    let targetBg, targetColor, targetHtml;
+    let targetBg: string;
+    let targetColor: string;
+    let targetHtml: string;
 
     if (badgeData.type === 'excluded') {
       targetBg = 'rgba(139, 143, 163, 0.1)';
@@ -428,7 +436,7 @@ import {
         targetBg = 'rgba(240, 173, 78, 0.1)';
         targetColor = '#f0ad4e';
         targetHtml = `🟡 Fair (avg ${avgStr})`;
-      } else if (badgeData.type === 'high') {
+      } else {
         targetBg = 'rgba(217, 83, 79, 0.1)';
         targetColor = '#d9534f';
         targetHtml = `🔴 Above avg (avg ${avgStr})`;
@@ -479,7 +487,7 @@ import {
   let isApplyingPriceIntelligence = false;
   let needsReapply = false;
 
-  async function applyPriceIntelligence(settings: any, retryCount = 0) {
+  async function applyPriceIntelligence(settings: Settings, retryCount = 0) {
     if (isApplyingPriceIntelligence) {
       needsReapply = true;
       return;
@@ -558,12 +566,8 @@ import {
 
     const clusters = clusterListings(referenceListings, settings.confidenceThreshold);
     const overallStats = calculateGroupStats(referenceListings, settings.excludeBroken);
-    
-    createOverviewPanel(overallStats, clusters, currency, settings);
 
-    for (const cluster of clusters) {
-      // (Optional: badge sold items if viewing sold page. But we are iterating over activeListings below anyway)
-    }
+    createOverviewPanel(overallStats, clusters, currency, settings);
 
     for (const item of activeListings) {
       if (!item.price) continue;
@@ -663,7 +667,7 @@ import {
     // Re-inject saved params that are missing from the current URL
     Object.entries(saved).forEach(([key, value]) => {
       if (!url.searchParams.has(key)) {
-        url.searchParams.set(key, value);
+        url.searchParams.set(key, String(value));
         changed = true;
       }
     });
@@ -699,7 +703,7 @@ import {
       confidenceThreshold: 70
     };
 
-    chrome.storage.sync.get(defaultSettings, function (settings) {
+    chrome.storage.sync.get(defaultSettings, function (settings: Settings) {
 
       // Feature 5: Sticky Filters (must run before URL-modifying features)
       if (settings.stickyFilters) {

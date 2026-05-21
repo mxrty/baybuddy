@@ -1,0 +1,114 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* ── Toggle Switch ─────────────────────────────────────── */
+  .toggle-switch {
+    @apply relative w-11 h-6 cursor-pointer flex-shrink-0;
+  }
+
+  .toggle-switch input {
+    @apply opacity-0 w-0 h-0 absolute;
+  }
+
+  .toggle-slider {
+    @apply absolute inset-0 rounded-3xl bg-text-muted;
+    transition: background 250ms cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .toggle-slider::before {
+    content: '';
+    @apply absolute w-[18px] h-[18px] left-[3px] top-[3px] bg-white rounded-full shadow-[0_1px_4px_rgba(0,0,0,0.3)];
+    transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .toggle-switch input:checked + .toggle-slider {
+    @apply bg-bb-blue shadow-[0_0_12px_rgba(54,101,243,0.35)];
+  }
+
+  .toggle-switch input:checked + .toggle-slider::before {
+    @apply translate-x-5;
+  }
+
+  /* ── Range Slider ──────────────────────────────────────── */
+  .range-slider {
+    -webkit-appearance: none;
+    @apply w-full h-1.5 rounded bg-white/10 outline-none;
+  }
+
+  .range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    @apply w-4 h-4 rounded-full bg-bb-blue cursor-pointer shadow-[0_0_10px_rgba(54,101,243,0.35)];
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .range-slider::-webkit-slider-thumb:hover {
+    @apply scale-110;
+  }
+
+  /* ── Sub-settings expand/collapse ─────────────────────── */
+  .sub-settings {
+    display: none;
+  }
+
+  [data-expanded='true'] .sub-settings {
+    display: flex;
+    animation: slideDown 200ms ease-out forwards;
+  }
+
+  [data-expanded='true'] > .toggle-row {
+    @apply rounded-b-none border-b-transparent bg-bb-blue/[0.08];
+  }
+
+  /* ── Expand button chevron ─────────────────────────────── */
+  .expand-btn svg {
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .expand-btn[aria-expanded='true'] svg {
+    @apply rotate-180;
+  }
+
+  /* ── Status bar inactive ───────────────────────────────── */
+  .status-bar.inactive {
+    @apply bg-text-muted/[0.06];
+  }
+
+  .status-bar.inactive .status-dot {
+    @apply bg-text-muted shadow-none;
+    animation: none;
+  }
+
+  .status-bar.inactive .status-text {
+    @apply text-text-muted;
+  }
+}
+
+@layer utilities {
+  .animate-pulse-slow {
+    animation: bb-pulse 2s ease-in-out infinite;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 300ms ease-out both;
+  }
+}
+
+@keyframes bb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

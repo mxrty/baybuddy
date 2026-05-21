@@ -390,7 +390,9 @@
       }
       const badge = badgeContainer.querySelector(".bb-price-badge");
       const dropdown = badgeContainer.querySelector(".bb-badge-dropdown");
-      let targetBg, targetColor, targetHtml;
+      let targetBg;
+      let targetColor;
+      let targetHtml;
       if (badgeData.type === "excluded") {
         targetBg = "rgba(139, 143, 163, 0.1)";
         targetColor = "#8b8fa3";
@@ -405,7 +407,7 @@
           targetBg = "rgba(240, 173, 78, 0.1)";
           targetColor = "#f0ad4e";
           targetHtml = `\u{1F7E1} Fair (avg ${avgStr})`;
-        } else if (badgeData.type === "high") {
+        } else {
           targetBg = "rgba(217, 83, 79, 0.1)";
           targetColor = "#d9534f";
           targetHtml = `\u{1F534} Above avg (avg ${avgStr})`;
@@ -520,8 +522,6 @@
         const clusters = clusterListings(referenceListings, settings.confidenceThreshold);
         const overallStats = calculateGroupStats(referenceListings, settings.excludeBroken);
         createOverviewPanel(overallStats, clusters, currency, settings);
-        for (const cluster of clusters) {
-        }
         for (const item of activeListings) {
           if (!item.price) continue;
           let isBroken = false;
@@ -601,7 +601,7 @@
       let changed = false;
       Object.entries(saved).forEach(([key, value]) => {
         if (!url.searchParams.has(key)) {
-          url.searchParams.set(key, value);
+          url.searchParams.set(key, String(value));
           changed = true;
         }
       });

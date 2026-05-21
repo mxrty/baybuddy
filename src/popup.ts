@@ -1,44 +1,42 @@
-/**
- * BayBuddy — Popup Script
- *
- * Manages settings toggles for all features.
- * Persisted to chrome.storage.sync.
- */
+import { Settings } from './utils';
 
 (function () {
   'use strict';
 
-  // ── Setting definitions ─────────────────────────────────
-  // Each entry: { id, storageKey, default }
-  const SETTINGS = [
+  interface SettingDef {
+    id: string;
+    key: keyof Settings;
+    default: Settings[keyof Settings];
+  }
+
+  const SETTINGS: SettingDef[] = [
     { id: 'hideCollectionOnly', key: 'hideCollectionOnly', default: true },
-    { id: 'localItemsOnly',    key: 'localItemsOnly',    default: true },
-    { id: 'priceBadges',       key: 'priceBadges',       default: true },
-    { id: 'excludeBroken',     key: 'excludeBroken',     default: true },
-    { id: 'stickyFilters',     key: 'stickyFilters',     default: false },
+    { id: 'localItemsOnly',     key: 'localItemsOnly',     default: true },
+    { id: 'priceBadges',        key: 'priceBadges',        default: true },
+    { id: 'excludeBroken',      key: 'excludeBroken',      default: true },
+    { id: 'stickyFilters',      key: 'stickyFilters',      default: false },
     { id: 'confidenceThreshold', key: 'confidenceThreshold', default: 70 }
   ];
 
-  const statusBar  = document.getElementById('statusBar');
-  const statusText = document.getElementById('statusText');
+  const statusBar  = document.getElementById('statusBar')!;
+  const statusText = document.getElementById('statusText')!;
   const applyBtn   = document.getElementById('applyNow');
   const expandPriceBadgesBtn = document.getElementById('expandPriceBadges');
   const priceBadgesGroup = document.getElementById('priceBadgesGroup');
 
-  // Build defaults object for chrome.storage.sync.get
-  const defaults: any = {};
-  SETTINGS.forEach(s => { defaults[s.key] = s.default; });
+  const defaults: Partial<Settings> = {};
+  SETTINGS.forEach(s => { (defaults as Record<string, unknown>)[s.key] = s.default; });
 
   // ── Load saved settings ─────────────────────────────────
-  chrome.storage.sync.get(defaults, function (settings) {
+  chrome.storage.sync.get(defaults, function (settings: Settings) {
     SETTINGS.forEach(s => {
-      const el = document.getElementById(s.id) as HTMLInputElement;
+      const el = document.getElementById(s.id) as HTMLInputElement | null;
       if (el) {
-        if (el.type === 'checkbox') el.checked = settings[s.key];
-        else if (el.type === 'range') el.value = settings[s.key];
+        if (el.type === 'checkbox') el.checked = settings[s.key] as boolean;
+        else if (el.type === 'range') el.value = String(settings[s.key]);
       }
     });
-    
+
     const confVal = document.getElementById('confidenceVal');
     if (confVal) confVal.textContent = settings.confidenceThreshold + '% Threshold';
 
@@ -46,35 +44,39 @@
   });
 
   // ── Attach change listeners ─────────────────────────────
+  const rangeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   SETTINGS.forEach(s => {
-    const el = document.getElementById(s.id) as HTMLInputElement;
+    const el = document.getElementById(s.id) as HTMLInputElement | null;
     if (!el) return;
 
     const eventType = el.type === 'range' ? 'input' : 'change';
 
     el.addEventListener(eventType, function () {
-      const update: any = {};
-      update[s.key] = el.type === 'checkbox' ? el.checked : parseInt(el.value, 10);
-      
+      const update: Partial<Settings> = {};
+      (update as Record<string, unknown>)[s.key] =
+        el.type === 'checkbox' ? el.checked : parseInt(el.value, 10);
+
       if (s.key === 'confidenceThreshold') {
         const confVal = document.getElementById('confidenceVal');
         if (confVal) confVal.textContent = el.value + '% Threshold';
       }
 
-      // Avoid spamming storage on range input
       if (el.type === 'range') {
-        clearTimeout(el.dataset.timeoutId);
-        el.dataset.timeoutId = setTimeout(() => {
+        const prev = rangeTimers.get(s.key);
+        if (prev !== undefined) clearTimeout(prev);
+        const timer = setTimeout(() => {
           chrome.storage.sync.set(update, function () {
-            chrome.storage.sync.get(defaults, function (allSettings) {
+            chrome.storage.sync.get(defaults, function (allSettings: Settings) {
               updateStatus(allSettings);
               flashSaved();
             });
           });
         }, 300);
+        rangeTimers.set(s.key, timer);
       } else {
         chrome.storage.sync.set(update, function () {
-          chrome.storage.sync.get(defaults, function (allSettings) {
+          chrome.storage.sync.get(defaults, function (allSettings: Settings) {
             updateStatus(allSettings);
             flashSaved();
           });
@@ -84,9 +86,11 @@
   });
 
   // ── Status bar ──────────────────────────────────────────
-  function updateStatus(settings) {
-    const activeCount = SETTINGS.filter(s => s.id !== 'confidenceThreshold' && settings[s.key]).length;
-    const total = SETTINGS.length - 1; // exclude slider
+  function updateStatus(settings: Settings) {
+    const activeCount = SETTINGS.filter(
+      s => s.key !== 'confidenceThreshold' && settings[s.key]
+    ).length;
+    const total = SETTINGS.length - 1;
 
     if (activeCount > 0) {
       statusBar.classList.remove('inactive');
@@ -106,20 +110,17 @@
     }, 800);
   }
 
-  // ── Expand/Collapse Sub-settings ────────────────────────
+  // ── Expand/Collapse sub-settings ────────────────────────
   if (expandPriceBadgesBtn && priceBadgesGroup) {
-    expandPriceBadgesBtn.addEventListener('click', function() {
+    expandPriceBadgesBtn.addEventListener('click', function () {
       const isExpanded = priceBadgesGroup.getAttribute('data-expanded') === 'true';
       priceBadgesGroup.setAttribute('data-expanded', String(!isExpanded));
       expandPriceBadgesBtn.setAttribute('aria-expanded', String(!isExpanded));
-      
-      // Optionally save expanded state to local storage so it persists
       chrome.storage.local.set({ priceBadgesExpanded: !isExpanded });
     });
-    
-    // Restore expanded state
-    chrome.storage.local.get(['priceBadgesExpanded'], function(res) {
-      if (res.priceBadgesExpanded) {
+
+    chrome.storage.local.get(['priceBadgesExpanded'], function (res) {
+      if (res['priceBadgesExpanded']) {
         priceBadgesGroup.setAttribute('data-expanded', 'true');
         expandPriceBadgesBtn.setAttribute('aria-expanded', 'true');
       }
