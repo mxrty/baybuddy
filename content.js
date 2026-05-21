@@ -249,7 +249,7 @@
   }
 
   // ══════════════════════════════════════════════════════════
-  // FEATURE 4: Sold Price Stats
+  // FEATURE 4: Price Intelligence Badges
   // ══════════════════════════════════════════════════════════
 
   function detectCurrency() {
@@ -268,10 +268,8 @@
   }
 
   function parsePriceText(text) {
-    // Remove currency symbols and whitespace
     let cleaned = text.replace(/[£$€,]/g, '').replace(/AU\s*/i, '').replace(/US\s*/i, '').replace(/C\s*/i, '').trim();
 
-    // Handle ranges like "30.00 to 45.00"
     if (cleaned.includes(' to ')) {
       const parts = cleaned.split(' to ');
       const low  = parseFloat(parts[0].trim());
@@ -283,189 +281,194 @@
     return isNaN(val) ? null : val;
   }
 
-  function collectPrices() {
-    // Support both new and legacy price selectors
-    const priceEls = document.querySelectorAll('.s-card__price, .s-item__price');
-    const prices = [];
+  function tokenizeTitle(title) {
+    let cleaned = title.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    let tokens = cleaned.split(/\s+/);
+    const noise = ['free', 'postage', 'fast', 'delivery', 'brand', 'new', 'sealed', 'controller', 'bundle', 'black', 'white', 'box', 'unboxed', 'mint', 'condition', 'excellent', 'good', 'used', 'uk'];
+    return new Set(tokens.filter(t => t.length > 1 && !noise.includes(t)));
+  }
 
-    priceEls.forEach(el => {
-      // Skip template/placeholder items
-      const card = el.closest('.s-card, .s-item');
-      if (card && (card.classList.contains('s-item__pl-on-bottom') || card.classList.contains('s-card__pl-on-bottom'))) return;
+  function jaccardSimilarity(setA, setB) {
+    if (setA.size === 0 && setB.size === 0) return 1;
+    let intersection = 0;
+    for (let item of setA) {
+      if (setB.has(item)) intersection++;
+    }
+    const union = setA.size + setB.size - intersection;
+    return intersection / union;
+  }
 
-      const price = parsePriceText(el.textContent);
-      if (price !== null && price > 0) {
-        prices.push(price);
+  function getListingData(card) {
+    if (card.classList && (card.classList.contains('s-item__pl-on-bottom') || card.classList.contains('s-card__pl-on-bottom'))) return null;
+
+    const titleEl = card.querySelector('.s-item__title, .s-card__title');
+    const priceEl = card.querySelector('.s-item__price, .s-card__price');
+    const subtitleEl = card.querySelector('.s-item__subtitle, .s-item__secondary-info, .SECONDARY_INFO, .s-card__subtitle, .s-item__condition');
+
+    if (!titleEl || !priceEl) return null;
+
+    const title = titleEl.textContent;
+    const price = parsePriceText(priceEl.textContent);
+    const condition = subtitleEl ? subtitleEl.textContent.toLowerCase() : '';
+
+    return { card, title, price, condition, tokens: tokenizeTitle(title) };
+  }
+
+  function clusterListings(listings, confidenceThreshold) {
+    const threshold = confidenceThreshold / 100;
+    const clusters = [];
+
+    for (const item of listings) {
+      let bestCluster = null;
+      let bestScore = -1;
+
+      for (const cluster of clusters) {
+        const score = jaccardSimilarity(item.tokens, cluster.items[0].tokens);
+        if (score > bestScore) {
+          bestScore = score;
+          bestCluster = cluster;
+        }
       }
-    });
 
-    return prices;
-  }
-
-  function calculateStats(prices) {
-    if (prices.length === 0) return null;
-
-    const sorted = [...prices].sort((a, b) => a - b);
-    const sum = sorted.reduce((a, b) => a + b, 0);
-    const avg = sum / sorted.length;
-    const mid = Math.floor(sorted.length / 2);
-    const median = sorted.length % 2 !== 0
-      ? sorted[mid]
-      : (sorted[mid - 1] + sorted[mid]) / 2;
-
-    return {
-      count:  sorted.length,
-      avg:    avg,
-      median: median,
-      min:    sorted[0],
-      max:    sorted[sorted.length - 1],
-      sorted: sorted
-    };
-  }
-
-  function buildHistogram(sorted, bucketCount) {
-    if (sorted.length === 0) return [];
-    const min = sorted[0];
-    const max = sorted[sorted.length - 1];
-    const range = max - min || 1;
-    const bucketSize = range / bucketCount;
-
-    const buckets = new Array(bucketCount).fill(0);
-    sorted.forEach(p => {
-      let idx = Math.floor((p - min) / bucketSize);
-      if (idx >= bucketCount) idx = bucketCount - 1;
-      buckets[idx]++;
-    });
-
-    return buckets;
-  }
-
-  function formatPrice(value, currency) {
-    return currency + value.toFixed(2);
-  }
-
-  function createStatsPanel(stats, currency) {
-    // Remove existing panel if present
-    const existing = document.getElementById('bb-stats-panel');
-    if (existing) existing.remove();
-
-    const histogram = buildHistogram(stats.sorted, 12);
-    const maxBucket = Math.max(...histogram);
-
-    // Build histogram bars
-    const bars = histogram.map(count => {
-      const height = maxBucket > 0 ? Math.max(4, (count / maxBucket) * 40) : 4;
-      return '<div style="' +
-        'flex:1;' +
-        'height:' + height + 'px;' +
-        'background:linear-gradient(to top, #3665f3, #5b7ff7);' +
-        'border-radius:2px 2px 0 0;' +
-        'min-width:6px;' +
-        'transition:height 300ms ease;' +
-      '"></div>';
-    }).join('');
-
-    const panel = document.createElement('div');
-    panel.id = 'bb-stats-panel';
-    panel.innerHTML = `
-      <div style="
-        margin: 16px auto;
-        max-width: 960px;
-        padding: 20px 24px;
-        background: linear-gradient(135deg, #0f1117, #161822);
-        border: 1px solid rgba(54, 101, 243, 0.2);
-        border-radius: 12px;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        color: #e8eaf0;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-      ">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:16px;">📊</span>
-            <span style="font-size:14px; font-weight:700; letter-spacing:-0.3px;">BayBuddy Price Stats</span>
-            <span style="font-size:12px; color:#8b8fa3; margin-left:4px;">${stats.count} sold items</span>
-          </div>
-          <button id="bb-stats-close" style="
-            background:none; border:none; color:#8b8fa3; cursor:pointer;
-            font-size:18px; padding:4px 8px; border-radius:6px;
-            transition: all 150ms ease;
-          " onmouseover="this.style.background='rgba(255,255,255,0.1)';this.style.color='#e8eaf0'"
-             onmouseout="this.style.background='none';this.style.color='#8b8fa3'">✕</button>
-        </div>
-
-        <div style="display:flex; gap:16px; margin-bottom:16px; flex-wrap:wrap;">
-          <div style="flex:1; min-width:100px; padding:12px 16px; background:rgba(54,101,243,0.08); border-radius:8px; border:1px solid rgba(54,101,243,0.15);">
-            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#8b8fa3; margin-bottom:4px;">Average</div>
-            <div style="font-size:18px; font-weight:700; color:#5b7ff7;">${formatPrice(stats.avg, currency)}</div>
-          </div>
-          <div style="flex:1; min-width:100px; padding:12px 16px; background:rgba(92,184,92,0.08); border-radius:8px; border:1px solid rgba(92,184,92,0.15);">
-            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#8b8fa3; margin-bottom:4px;">Median</div>
-            <div style="font-size:18px; font-weight:700; color:#5cb85c;">${formatPrice(stats.median, currency)}</div>
-          </div>
-          <div style="flex:1; min-width:100px; padding:12px 16px; background:rgba(255,255,255,0.04); border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#8b8fa3; margin-bottom:4px;">Low</div>
-            <div style="font-size:18px; font-weight:700;">${formatPrice(stats.min, currency)}</div>
-          </div>
-          <div style="flex:1; min-width:100px; padding:12px 16px; background:rgba(255,255,255,0.04); border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:#8b8fa3; margin-bottom:4px;">High</div>
-            <div style="font-size:18px; font-weight:700;">${formatPrice(stats.max, currency)}</div>
-          </div>
-        </div>
-
-        <div style="
-          display:flex; align-items:flex-end; gap:3px; height:44px;
-          padding:8px 4px 0; background:rgba(255,255,255,0.02);
-          border-radius:8px; border:1px solid rgba(255,255,255,0.04);
-        ">
-          ${bars}
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:4px; padding:0 4px;">
-          <span style="font-size:10px; color:#575b6e;">${formatPrice(stats.min, currency)}</span>
-          <span style="font-size:10px; color:#575b6e;">Price distribution</span>
-          <span style="font-size:10px; color:#575b6e;">${formatPrice(stats.max, currency)}</span>
-        </div>
-      </div>
-    `;
-
-    // Insert at top of results
-    const resultsContainer =
-      document.querySelector('.srp-results') ||
-      document.querySelector('#srp-river-results') ||
-      document.querySelector('[id*="ResultSet"]') ||
-      document.querySelector('.srp-river-main');
-
-    if (resultsContainer) {
-      resultsContainer.parentNode.insertBefore(panel, resultsContainer);
-    } else {
-      // Fallback: insert at top of main content
-      const main = document.querySelector('#mainContent') || document.querySelector('#srp-river') || document.body;
-      main.insertBefore(panel, main.firstChild);
+      if (bestScore >= threshold) {
+        bestCluster.items.push(item);
+      } else {
+        clusters.push({ items: [item] });
+      }
     }
 
-    // Close button handler
-    document.getElementById('bb-stats-close').addEventListener('click', () => {
-      panel.remove();
-    });
+    return clusters;
   }
 
-  function showPriceStats(retryCount) {
-    retryCount = retryCount || 0;
+  function calculateGroupStats(items, excludeBroken) {
+    const validItems = items.filter(item => {
+      if (!item.price) return false;
+      if (excludeBroken) {
+        const cond = item.condition;
+        if (cond.includes('parts') || cond.includes('repair') || cond.includes('faulty') || cond.includes('broken')) {
+          return false;
+        }
+      }
+      return true;
+    });
 
-    const prices = collectPrices();
-    const stats = calculateStats(prices);
+    if (validItems.length < 2) return null;
 
-    // Items may not have loaded yet — retry up to 5 times
-    if (!stats && retryCount < 5) {
-      setTimeout(function () {
-        showSoldStats(retryCount + 1);
-      }, 500 * (retryCount + 1));
+    const prices = validItems.map(i => i.price);
+    const sum = prices.reduce((a, b) => a + b, 0);
+    const mean = sum / prices.length;
+
+    const sqDiffs = prices.map(p => Math.pow(p - mean, 2));
+    const avgSqDiff = sqDiffs.reduce((a, b) => a + b, 0) / prices.length;
+    const stdDev = Math.sqrt(avgSqDiff);
+
+    return { mean, stdDev, validItems };
+  }
+
+  function injectBadge(item, badgeData, currency) {
+    let badge = item.card.querySelector('.bb-price-badge');
+    let needsAppend = false;
+    
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'bb-price-badge';
+      badge.style.cssText = `
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 8px;
+        font-family: 'Inter', -apple-system, sans-serif;
+      `;
+      needsAppend = true;
+    }
+
+    let targetBg, targetColor, targetHtml;
+
+    if (badgeData.type === 'excluded') {
+      targetBg = 'rgba(139, 143, 163, 0.1)';
+      targetColor = '#8b8fa3';
+      targetHtml = `⚪ Excluded (parts)`;
+    } else {
+      const avgStr = currency + badgeData.mean.toFixed(2);
+      if (badgeData.type === 'good') {
+        targetBg = 'rgba(92, 184, 92, 0.1)';
+        targetColor = '#5cb85c';
+        targetHtml = `🟢 Good (avg ${avgStr})`;
+      } else if (badgeData.type === 'fair') {
+        targetBg = 'rgba(240, 173, 78, 0.1)';
+        targetColor = '#f0ad4e';
+        targetHtml = `🟡 Fair (avg ${avgStr})`;
+      } else if (badgeData.type === 'high') {
+        targetBg = 'rgba(217, 83, 79, 0.1)';
+        targetColor = '#d9534f';
+        targetHtml = `🔴 Above avg (avg ${avgStr})`;
+      }
+    }
+
+    if (badge.innerHTML !== targetHtml) {
+      badge.style.background = targetBg;
+      badge.style.color = targetColor;
+      badge.innerHTML = targetHtml;
+    }
+
+    if (needsAppend) {
+      const priceContainer = item.card.querySelector('.s-item__price, .s-card__price');
+      if (priceContainer) {
+        priceContainer.appendChild(badge);
+      }
+    }
+  }
+
+  function applyPriceIntelligence(settings, retryCount = 0) {
+    const cards = getListingCards();
+    
+    // Retry if DOM not fully populated
+    if (cards.length === 0 && retryCount < 5) {
+      setTimeout(() => applyPriceIntelligence(settings, retryCount + 1), 500);
       return;
     }
 
-    if (!stats) return;
-
     const currency = detectCurrency();
-    createStatsPanel(stats, currency);
+    const listings = [];
+    cards.forEach(c => {
+      const data = getListingData(c);
+      if (data) listings.push(data);
+    });
+
+    const clusters = clusterListings(listings, settings.confidenceThreshold);
+
+    for (const cluster of clusters) {
+      const stats = calculateGroupStats(cluster.items, settings.excludeBroken);
+      
+      for (const item of cluster.items) {
+        if (!item.price) continue;
+
+        let isBroken = false;
+        if (settings.excludeBroken) {
+          const cond = item.condition;
+          if (cond.includes('parts') || cond.includes('repair') || cond.includes('faulty') || cond.includes('broken')) {
+            isBroken = true;
+          }
+        }
+
+        if (isBroken) {
+          injectBadge(item, { type: 'excluded' }, currency);
+        } else if (stats) {
+          const diff = item.price - stats.mean;
+          if (diff < -0.5 * stats.stdDev) {
+            injectBadge(item, { type: 'good', mean: stats.mean }, currency);
+          } else if (diff > 0.5 * stats.stdDev) {
+            injectBadge(item, { type: 'high', mean: stats.mean }, currency);
+          } else {
+            injectBadge(item, { type: 'fair', mean: stats.mean }, currency);
+          }
+        }
+      }
+    }
   }
 
   // ══════════════════════════════════════════════════════════
@@ -546,8 +549,10 @@
     const defaultSettings = {
       hideCollectionOnly: true,
       localItemsOnly: true,
-      soldPriceStats: true,
-      stickyFilters: false
+      priceBadges: true,
+      excludeBroken: true,
+      stickyFilters: false,
+      confidenceThreshold: 70
     };
 
     chrome.storage.sync.get(defaultSettings, function (settings) {
@@ -562,9 +567,10 @@
         applyLocalItemsOnly();
       }
 
-      // Feature 1: Hide Collection Only
-      if (settings.hideCollectionOnly) {
-        processAllCards();
+      // Feature 1: Hide Collection Only and Feature 4: Price Badges
+      if (settings.hideCollectionOnly || settings.priceBadges) {
+        if (settings.hideCollectionOnly) processAllCards();
+        if (settings.priceBadges) applyPriceIntelligence(settings);
 
         const resultsContainer =
           document.querySelector('.srp-results') ||
@@ -576,13 +582,20 @@
         const observer = new MutationObserver(mutations => {
           let hasNewNodes = false;
           for (const mutation of mutations) {
-            if (mutation.addedNodes.length > 0) {
+            for (const node of mutation.addedNodes) {
+              if (node.nodeType === 1 && node.classList && node.classList.contains('bb-price-badge')) {
+                continue;
+              }
+              if (node.parentNode && node.parentNode.classList && node.parentNode.classList.contains('bb-price-badge')) {
+                continue;
+              }
               hasNewNodes = true;
-              break;
             }
+            if (hasNewNodes) break;
           }
           if (hasNewNodes) {
-            processAllCards();
+            if (settings.hideCollectionOnly) processAllCards();
+            if (settings.priceBadges) applyPriceIntelligence(settings);
           }
         });
 
@@ -594,12 +607,6 @@
 
       // Feature 3: Sold Listings overlay button (always visible on search pages)
       createSoldButton();
-
-      // Feature 4: Price Stats (active and sold listings)
-      if (settings.soldPriceStats) {
-        showPriceStats();
-      }
-
 
     });
   }

@@ -53,16 +53,46 @@
         </label>
       </div>
 
-      <!-- Sold Price Stats -->
-      <div class="toggle-row">
-        <div class="toggle-info">
-          <span class="toggle-label">Sold Price Stats</span>
-          <span class="toggle-desc">Show price analytics on sold pages</span>
+      <!-- Price Badges Group -->
+      <div class="setting-group" id="priceBadgesGroup">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-label">Price Intelligence Badges</span>
+            <span class="toggle-desc">Show deal ratings on items</span>
+          </div>
+          <div class="toggle-actions">
+            <label class="toggle-switch">
+              <input type="checkbox" id="priceBadges" />
+              <span class="toggle-slider"></span>
+            </label>
+            <button class="expand-btn" id="expandPriceBadges" aria-expanded="false" title="Advanced Settings">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </div>
         </div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="soldPriceStats" />
-          <span class="toggle-slider"></span>
-        </label>
+
+        <div class="sub-settings" id="priceBadgesSub">
+          <!-- Exclude Broken -->
+          <div class="toggle-row sub-row">
+            <div class="toggle-info">
+              <span class="toggle-label">Exclude Broken/Parts</span>
+              <span class="toggle-desc">Ignore faulty items in stats</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="excludeBroken" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <!-- Confidence Threshold -->
+          <div class="slider-row sub-row">
+            <div class="toggle-info">
+              <span class="toggle-label">Grouping Strictness</span>
+              <span class="toggle-desc" id="confidenceVal">70% Threshold</span>
+            </div>
+            <input type="range" id="confidenceThreshold" min="30" max="100" value="70" class="range-slider" />
+          </div>
+        </div>
       </div>
 
       <!-- Sticky Filters -->

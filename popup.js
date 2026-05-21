@@ -13,13 +13,17 @@
   const SETTINGS = [
     { id: 'hideCollectionOnly', key: 'hideCollectionOnly', default: true },
     { id: 'localItemsOnly',    key: 'localItemsOnly',    default: true },
-    { id: 'soldPriceStats',    key: 'soldPriceStats',    default: true },
-    { id: 'stickyFilters',     key: 'stickyFilters',     default: false }
+    { id: 'priceBadges',       key: 'priceBadges',       default: true },
+    { id: 'excludeBroken',     key: 'excludeBroken',     default: true },
+    { id: 'stickyFilters',     key: 'stickyFilters',     default: false },
+    { id: 'confidenceThreshold', key: 'confidenceThreshold', default: 70 }
   ];
 
   const statusBar  = document.getElementById('statusBar');
   const statusText = document.getElementById('statusText');
   const applyBtn   = document.getElementById('applyNow');
+  const expandPriceBadgesBtn = document.getElementById('expandPriceBadges');
+  const priceBadgesGroup = document.getElementById('priceBadgesGroup');
 
   // Build defaults object for chrome.storage.sync.get
   const defaults = {};
@@ -28,34 +32,61 @@
   // ── Load saved settings ─────────────────────────────────
   chrome.storage.sync.get(defaults, function (settings) {
     SETTINGS.forEach(s => {
-      const toggle = document.getElementById(s.id);
-      if (toggle) toggle.checked = settings[s.key];
+      const el = document.getElementById(s.id);
+      if (el) {
+        if (el.type === 'checkbox') el.checked = settings[s.key];
+        else if (el.type === 'range') el.value = settings[s.key];
+      }
     });
+    
+    const confVal = document.getElementById('confidenceVal');
+    if (confVal) confVal.textContent = settings.confidenceThreshold + '% Threshold';
+
     updateStatus(settings);
   });
 
   // ── Attach change listeners ─────────────────────────────
   SETTINGS.forEach(s => {
-    const toggle = document.getElementById(s.id);
-    if (!toggle) return;
+    const el = document.getElementById(s.id);
+    if (!el) return;
 
-    toggle.addEventListener('change', function () {
+    const eventType = el.type === 'range' ? 'input' : 'change';
+
+    el.addEventListener(eventType, function () {
       const update = {};
-      update[s.key] = toggle.checked;
-      chrome.storage.sync.set(update, function () {
-        // Re-read all settings to update status bar
-        chrome.storage.sync.get(defaults, function (allSettings) {
-          updateStatus(allSettings);
-          flashSaved();
+      update[s.key] = el.type === 'checkbox' ? el.checked : parseInt(el.value, 10);
+      
+      if (s.key === 'confidenceThreshold') {
+        const confVal = document.getElementById('confidenceVal');
+        if (confVal) confVal.textContent = el.value + '% Threshold';
+      }
+
+      // Avoid spamming storage on range input
+      if (el.type === 'range') {
+        clearTimeout(el.dataset.timeoutId);
+        el.dataset.timeoutId = setTimeout(() => {
+          chrome.storage.sync.set(update, function () {
+            chrome.storage.sync.get(defaults, function (allSettings) {
+              updateStatus(allSettings);
+              flashSaved();
+            });
+          });
+        }, 300);
+      } else {
+        chrome.storage.sync.set(update, function () {
+          chrome.storage.sync.get(defaults, function (allSettings) {
+            updateStatus(allSettings);
+            flashSaved();
+          });
         });
-      });
+      }
     });
   });
 
   // ── Status bar ──────────────────────────────────────────
   function updateStatus(settings) {
-    const activeCount = SETTINGS.filter(s => settings[s.key]).length;
-    const total = SETTINGS.length;
+    const activeCount = SETTINGS.filter(s => s.id !== 'confidenceThreshold' && settings[s.key]).length;
+    const total = SETTINGS.length - 1; // exclude slider
 
     if (activeCount > 0) {
       statusBar.classList.remove('inactive');
@@ -73,6 +104,26 @@
     setTimeout(function () {
       statusText.textContent = origText;
     }, 800);
+  }
+
+  // ── Expand/Collapse Sub-settings ────────────────────────
+  if (expandPriceBadgesBtn && priceBadgesGroup) {
+    expandPriceBadgesBtn.addEventListener('click', function() {
+      const isExpanded = priceBadgesGroup.getAttribute('data-expanded') === 'true';
+      priceBadgesGroup.setAttribute('data-expanded', !isExpanded);
+      expandPriceBadgesBtn.setAttribute('aria-expanded', !isExpanded);
+      
+      // Optionally save expanded state to local storage so it persists
+      chrome.storage.local.set({ priceBadgesExpanded: !isExpanded });
+    });
+    
+    // Restore expanded state
+    chrome.storage.local.get(['priceBadgesExpanded'], function(res) {
+      if (res.priceBadgesExpanded) {
+        priceBadgesGroup.setAttribute('data-expanded', 'true');
+        expandPriceBadgesBtn.setAttribute('aria-expanded', 'true');
+      }
+    });
   }
 
   // ── Refresh current tab ─────────────────────────────────
