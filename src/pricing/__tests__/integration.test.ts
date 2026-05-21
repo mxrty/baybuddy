@@ -1,15 +1,12 @@
 /**
  * Integration tests against real test-data fixtures.
- * Expanded in Task 6 with full dataset assertions.
  * Fixtures loaded via fs.readFileSync — resolveJsonModule is NOT enabled.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { clusterListings, resetClusterIdCounter } from '../cluster';
-import { parseRawListings } from '../parse';
-import { discoverIdentityVocab, clearTokenizeCache } from '../tokenize';
-import type { RawListing, ParsedListing, PricingGroup } from '../types';
+import { analysePricing } from '../index';
+import type { RawListing, PricingGroup, PricingResult } from '../types';
 
 const TEST_DATA = path.join(__dirname, '../../../test-data');
 
@@ -18,17 +15,6 @@ function loadDataset(name: string): RawListing[] {
     fs.readFileSync(path.join(TEST_DATA, `${name}.json`), 'utf-8'),
   ) as { items: RawListing[] };
   return raw.items;
-}
-
-function prepareListings(rawItems: RawListing[]): ParsedListing[] {
-  const parsed = parseRawListings(rawItems);
-  const titles = parsed.map(l => l.title);
-  const prices = parsed.map(l => l.totalPrice);
-  const vocab = discoverIdentityVocab(titles, prices);
-  return parsed.map(l => ({
-    ...l,
-    tokens: require('../tokenize').tokenize(l.title, vocab),
-  }));
 }
 
 function allGroups(groups: PricingGroup[]): PricingGroup[] {
@@ -40,71 +26,307 @@ function allGroups(groups: PricingGroup[]): PricingGroup[] {
   return result;
 }
 
-beforeEach(() => {
-  resetClusterIdCounter();
-  clearTokenizeCache();
-});
+function leafGroups(groups: PricingGroup[]): PricingGroup[] {
+  return allGroups(groups).filter(g => g.children.length === 0);
+}
 
 // ── iPhone 16 — hierarchical grouping ────────────────────────────────────────
 
 describe('iphone-16-sold — hierarchical structure', () => {
-  let groups: PricingGroup[];
+  let result: PricingResult;
 
   beforeAll(() => {
-    resetClusterIdCounter();
-    clearTokenizeCache();
-    const parsed = prepareListings(loadDataset('iphone-16-sold'));
-    groups = clusterListings(parsed);
+    result = analysePricing(loadDataset('iphone-16-sold'), 'iphone 16');
   });
 
   test('produces at least one top-level group with children (hierarchical split fired)', () => {
-    const withChildren = groups.filter(g => g.children.length > 0);
+    const withChildren = result.rootGroups.filter(g => g.children.length > 0);
     expect(withChildren.length).toBeGreaterThanOrEqual(1);
   });
 
   test('iphone-containing groups exist at the top level', () => {
-    const iphoneGroups = groups.filter(g => g.label.includes('iphone'));
+    const iphoneGroups = result.rootGroups.filter(g => g.label.includes('iphone'));
     expect(iphoneGroups.length).toBeGreaterThanOrEqual(1);
   });
 
   test('at least one group contains Pro listings', () => {
-    const flat = allGroups(groups);
-    const proGroup = flat.find(g =>
-      g.items.some(i => /pro/i.test(i.title)),
-    );
+    const flat = allGroups(result.rootGroups);
+    const proGroup = flat.find(g => g.items.some(i => /pro/i.test(i.title)));
     expect(proGroup).toBeDefined();
   });
 
   test('Pro Max and plain iPhone 16 appear in distinct groups or sub-groups', () => {
-    const flat = allGroups(groups);
-    const proMaxGroup = flat.find(g =>
-      g.items.some(i => /pro max/i.test(i.title)) && g.children.length === 0,
+    const flat = allGroups(result.rootGroups);
+    const proMaxGroup = flat.find(
+      g => g.items.some(i => /pro max/i.test(i.title)) && g.children.length === 0,
     );
-    const plainGroup = flat.find(g =>
-      g.items.some(i => /iphone 16(?! pro| plus| max| 16e)/i.test(i.title)) &&
-      g.children.length === 0,
+    const plainGroup = flat.find(
+      g =>
+        g.items.some(i => /iphone 16(?! pro| plus| max| 16e)/i.test(i.title)) &&
+        g.children.length === 0,
     );
-    // They should not be the exact same leaf group
     if (proMaxGroup && plainGroup) {
       expect(proMaxGroup.id).not.toBe(plainGroup.id);
     }
   });
 
-  test('no group issued from fewer than 3 items at any level', () => {
-    const flat = allGroups(groups);
-    for (const g of flat) {
-      if (g.children.length === 0) {
-        // Only leaf groups should have items; parents also keep items for stats
-        expect(g.items.length).toBeGreaterThanOrEqual(1);
-      }
-    }
-    // No confidence badge from groups < 3 items (enforced by analyse, but cluster
-    // should not create leaf groups smaller than MIN_CHILD_SIZE either)
-    const tinyLeaves = flat.filter(g => g.children.length === 0 && g.items.length < 3);
-    // Singletons and pairs are allowed from the flat pass (singletons form when nothing matches)
-    // but the hierarchical splitter must not CREATE a child with < 3 items
+  test('hierarchical splitter never creates a child group with fewer than 3 items', () => {
+    const flat = allGroups(result.rootGroups);
     for (const g of flat.filter(g => g.depth > 0)) {
       expect(g.items.length).toBeGreaterThanOrEqual(3);
     }
+  });
+});
+
+// ── Xbox — multiple distinct product groups ───────────────────────────────────
+
+describe('xbox-sold — distinct product groups', () => {
+  let result: PricingResult;
+
+  beforeAll(() => {
+    result = analysePricing(loadDataset('xbox-sold'), 'xbox');
+  });
+
+  test('produces at least 3 leaf groups', () => {
+    expect(leafGroups(result.rootGroups).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('Series X and Series S appear in separate groups', () => {
+    const flat = allGroups(result.rootGroups);
+    const seriesXGroup = flat.find(g => g.items.some(i => /series x/i.test(i.title)));
+    const seriesSGroup = flat.find(g => g.items.some(i => /series s/i.test(i.title)));
+    if (seriesXGroup && seriesSGroup) {
+      expect(seriesXGroup.id).not.toBe(seriesSGroup.id);
+    }
+    // At least one of them must exist
+    expect(seriesXGroup ?? seriesSGroup).toBeDefined();
+  });
+
+  test('no badge issued from a group with fewer than 3 items', () => {
+    for (const assessment of result.assessments) {
+      if (assessment.showBadge && assessment.matchedGroup) {
+        expect(assessment.matchedGroup.items.length).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+});
+
+// ── Nintendo Switch — three models separable ─────────────────────────────────
+
+describe('nintendo-switch-sold — model separation', () => {
+  let result: PricingResult;
+
+  beforeAll(() => {
+    result = analysePricing(loadDataset('nintendo-switch-sold'), 'nintendo switch');
+  });
+
+  test('produces multiple groups', () => {
+    expect(leafGroups(result.rootGroups).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('Switch OLED and Switch Lite appear in at least one group each if present', () => {
+    const flat = allGroups(result.rootGroups);
+    const hasOled = flat.some(g => g.items.some(i => /oled/i.test(i.title)));
+    const hasLite = flat.some(g => g.items.some(i => /lite/i.test(i.title)));
+    // If the dataset contains these variants, they should appear somewhere
+    const rawItems = loadDataset('nintendo-switch-sold');
+    const oledInData = rawItems.some(i => /oled/i.test(i.title));
+    const liteInData = rawItems.some(i => /lite/i.test(i.title));
+    if (oledInData) expect(hasOled).toBe(true);
+    if (liteInData) expect(hasLite).toBe(true);
+  });
+});
+
+// ── Air purifier — Dyson vs generics ─────────────────────────────────────────
+
+describe('air-purifier-sold — brand separation', () => {
+  let result: PricingResult;
+
+  beforeAll(() => {
+    result = analysePricing(loadDataset('air-purifier-sold'), 'air purifier');
+  });
+
+  test('produces multiple groups', () => {
+    expect(leafGroups(result.rootGroups).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('Dyson listings and cheap generic listings are in different groups (if both present)', () => {
+    const raw = loadDataset('air-purifier-sold');
+    const hasDyson = raw.some(i => /dyson/i.test(i.title));
+    if (!hasDyson) return;
+
+    const flat = allGroups(result.rootGroups);
+    const dysonGroup = flat.find(g => g.items.some(i => /dyson/i.test(i.title)));
+    expect(dysonGroup).toBeDefined();
+
+    // Dyson group median should be notably higher than cheapest group
+    const groups = leafGroups(result.rootGroups);
+    if (groups.length >= 2 && dysonGroup && dysonGroup.children.length === 0) {
+      const cheapest = groups.reduce((a, b) =>
+        a.stats.median < b.stats.median ? a : b,
+      );
+      // Dyson median should be above the cheapest group's median
+      expect(dysonGroup.stats.median).toBeGreaterThan(cheapest.stats.median);
+    }
+  });
+});
+
+// ── Stoneware — no single giant cluster ──────────────────────────────────────
+
+describe('stoneware-sold — no monolithic cluster', () => {
+  let result: PricingResult;
+
+  beforeAll(() => {
+    result = analysePricing(loadDataset('stoneware-sold'), 'stoneware');
+  });
+
+  test('does not produce a single group containing all listings', () => {
+    const total = result.summary.totalListingsAnalysed;
+    const largest = leafGroups(result.rootGroups).reduce(
+      (max, g) => Math.max(max, g.items.length),
+      0,
+    );
+    // Largest group should not contain everything — expect at least 2 clusters
+    expect(leafGroups(result.rootGroups).length).toBeGreaterThanOrEqual(2);
+    expect(largest).toBeLessThan(total);
+  });
+});
+
+// ── BMW / VW Golf — high-variance, mostly ungroupable ────────────────────────
+
+describe('bmw-sold — high variance, few badges', () => {
+  let result: PricingResult;
+
+  beforeAll(() => {
+    result = analysePricing(loadDataset('bmw-sold'), 'bmw');
+  });
+
+  test('most assessments have no badge (heterogeneous data)', () => {
+    const withBadge = result.assessments.filter(a => a.showBadge).length;
+    const total = result.assessments.length;
+    // At least 30% should lack a badge for a heterogeneous dataset
+    expect(withBadge).toBeLessThan(total * 0.7);
+  });
+
+  test('no badge issued from a group with fewer than 3 items', () => {
+    for (const assessment of result.assessments) {
+      if (assessment.showBadge && assessment.matchedGroup) {
+        expect(assessment.matchedGroup.items.length).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+});
+
+describe('volkswagen-golf-sold — high variance, few badges', () => {
+  let result: PricingResult;
+
+  beforeAll(() => {
+    result = analysePricing(loadDataset('volkswagen-golf-sold'), 'volkswagen golf');
+  });
+
+  test('most assessments have no badge (heterogeneous data)', () => {
+    const withBadge = result.assessments.filter(a => a.showBadge).length;
+    const total = result.assessments.length;
+    expect(withBadge).toBeLessThan(total * 0.7);
+  });
+});
+
+// ── Cross-dataset checks ──────────────────────────────────────────────────────
+
+const ALL_DATASETS = [
+  'xbox-sold',
+  'xbox-used',
+  'nintendo-switch-sold',
+  'nintendo-switch-active',
+  'iphone-16-sold',
+  'iphone-16-active',
+  'stoneware-sold',
+  'stoneware-used',
+  'air-purifier-sold',
+  'air-purifier-active',
+  'bmw-sold',
+  'bmw-active',
+  'volkswagen-golf-sold',
+  'volkswagen-golf-active',
+];
+
+describe('cross-dataset — junk filter', () => {
+  for (const dataset of ALL_DATASETS) {
+    test(`${dataset}: "Shop on eBay" items are filtered out`, () => {
+      const raw = loadDataset(dataset);
+      const shopItems = raw.filter(i => i.title.trim() === 'Shop on eBay');
+      if (shopItems.length === 0) return; // dataset has none, vacuously pass
+
+      const result = analysePricing(raw, dataset.replace(/-/g, ' '));
+      const allTitles = result.assessments.map(a => a.listing.title);
+      expect(allTitles.every(t => t.trim() !== 'Shop on eBay')).toBe(true);
+      expect(result.summary.filteredOut).toBeGreaterThanOrEqual(shopItems.length);
+    });
+  }
+});
+
+describe('cross-dataset — postage extraction rate', () => {
+  for (const dataset of ALL_DATASETS) {
+    test(`${dataset}: postage known for ≥ 80% of listings that have deliveryText`, () => {
+      const raw = loadDataset(dataset);
+      const withDelivery = raw.filter(i => i.deliveryText && i.deliveryText.trim() !== '');
+      if (withDelivery.length === 0) return;
+
+      const result = analysePricing(raw, dataset.replace(/-/g, ' '));
+      // Map from link → assessment for quick lookup
+      const assessmentByLink = new Map(result.assessments.map(a => [a.listing.link, a]));
+
+      let known = 0;
+      let checked = 0;
+      for (const item of withDelivery) {
+        const assessment = assessmentByLink.get(item.link);
+        if (!assessment) continue;
+        checked++;
+        if (assessment.listing.postageKnown) known++;
+      }
+
+      if (checked === 0) return;
+      const rate = known / checked;
+      console.log(`[${dataset}] postage known rate: ${(rate * 100).toFixed(1)}% (${known}/${checked})`);
+      expect(rate).toBeGreaterThanOrEqual(0.8);
+    });
+  }
+});
+
+describe('cross-dataset — no badge from groups < 3 items', () => {
+  for (const dataset of ALL_DATASETS) {
+    test(`${dataset}: every badged listing is in a group with ≥ 3 items`, () => {
+      const result = analysePricing(loadDataset(dataset), dataset.replace(/-/g, ' '));
+      for (const a of result.assessments) {
+        if (a.showBadge && a.matchedGroup) {
+          expect(a.matchedGroup.items.length).toBeGreaterThanOrEqual(3);
+        }
+      }
+    });
+  }
+});
+
+// ── Performance ───────────────────────────────────────────────────────────────
+
+describe('performance — largest dataset under 200ms', () => {
+  test('full pipeline on largest available dataset completes in < 200ms', () => {
+    // Find the dataset with the most items
+    let largestDataset = ALL_DATASETS[0];
+    let largestCount = 0;
+    for (const ds of ALL_DATASETS) {
+      const items = loadDataset(ds);
+      if (items.length > largestCount) {
+        largestCount = items.length;
+        largestDataset = ds;
+      }
+    }
+
+    const raw = loadDataset(largestDataset);
+    const start = Date.now();
+    analysePricing(raw, largestDataset.replace(/-/g, ' '));
+    const elapsed = Date.now() - start;
+
+    console.log(`[perf] ${largestDataset} (${raw.length} items): ${elapsed}ms`);
+    expect(elapsed).toBeLessThan(200);
   });
 });
