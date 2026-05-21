@@ -1,142 +1,237 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=360" />
-  <title>BayBuddy</title>
-  <link rel="stylesheet" href="popup.css" />
-</head>
-<body class="font-sans bg-bg-primary text-text-primary w-[300px] antialiased">
-  <div class="relative overflow-hidden">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=360" />
+    <title>BayBuddy</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body class="font-sans bg-bg-primary text-text-primary w-[300px] antialiased">
+    <div class="relative overflow-hidden">
+      <!-- Background gradient -->
+      <div
+        class="absolute -top-[60%] -left-[30%] w-[160%] h-[120%] pointer-events-none z-0"
+        style="
+          background: radial-gradient(
+            ellipse at 30% 20%,
+            rgba(54, 101, 243, 0.08) 0%,
+            transparent 60%
+          );
+        "
+      ></div>
 
-    <!-- Background gradient -->
-    <div class="absolute -top-[60%] -left-[30%] w-[160%] h-[120%] pointer-events-none z-0"
-         style="background: radial-gradient(ellipse at 30% 20%, rgba(54,101,243,0.08) 0%, transparent 60%)"></div>
+      <!-- Header -->
+      <header
+        class="relative z-10 px-5 pt-5 pb-4 border-b border-white/[0.06]"
+        style="
+          background: linear-gradient(
+            135deg,
+            rgba(54, 101, 243, 0.12) 0%,
+            rgba(22, 24, 38, 0.4) 100%
+          );
+        "
+      >
+        <div class="flex items-center gap-3">
+          <div
+            class="w-9 h-9 flex items-center justify-center rounded-lg flex-shrink-0 overflow-hidden shadow-[0_4px_12px_rgba(26,35,126,0.4)]"
+            style="background: linear-gradient(135deg, #1a237e, #283593)"
+          >
+            <img
+              src="icons/icon32.png"
+              alt="BayBuddy"
+              width="28"
+              height="28"
+              class="rounded"
+            />
+          </div>
+          <div>
+            <h1 class="text-[15px] font-bold tracking-tight leading-tight">
+              BayBuddy
+            </h1>
+            <p class="mt-0.5 text-[11px] text-text-secondary">
+              Your smart eBay companion
+            </p>
+          </div>
+        </div>
+      </header>
 
-    <!-- Header -->
-    <header class="relative z-10 px-5 pt-5 pb-4 border-b border-white/[0.06]"
-            style="background: linear-gradient(135deg, rgba(54,101,243,0.12) 0%, rgba(22,24,38,0.4) 100%)">
-      <div class="flex items-center gap-3">
-        <div class="w-9 h-9 flex items-center justify-center rounded-lg flex-shrink-0 overflow-hidden shadow-[0_4px_12px_rgba(26,35,126,0.4)]"
-             style="background: linear-gradient(135deg, #1a237e, #283593)">
-          <img src="icons/icon32.png" alt="BayBuddy" width="28" height="28" class="rounded" />
-        </div>
-        <div>
-          <h1 class="text-[15px] font-bold tracking-tight leading-tight">BayBuddy</h1>
-          <p class="mt-0.5 text-[11px] text-text-secondary">Your smart eBay companion</p>
-        </div>
+      <!-- Status Bar -->
+      <div
+        class="status-bar relative z-10 flex items-center gap-2 px-5 py-2.5 border-b border-white/[0.06]"
+        style="background: rgba(92, 184, 92, 0.06)"
+        id="statusBar"
+      >
+        <span
+          class="status-dot w-[7px] h-[7px] rounded-full bg-bb-green shadow-[0_0_8px_rgba(92,184,92,0.5)] animate-pulse-slow"
+        ></span>
+        <span
+          class="status-text text-[11px] font-medium text-bb-green tracking-[0.2px]"
+          id="statusText"
+          >Filters active</span
+        >
       </div>
-    </header>
 
-    <!-- Status Bar -->
-    <div class="status-bar relative z-10 flex items-center gap-2 px-5 py-2.5 border-b border-white/[0.06]"
-         style="background: rgba(92,184,92,0.06)" id="statusBar">
-      <span class="status-dot w-[7px] h-[7px] rounded-full bg-bb-green shadow-[0_0_8px_rgba(92,184,92,0.5)] animate-pulse-slow"></span>
-      <span class="status-text text-[11px] font-medium text-bb-green tracking-[0.2px]" id="statusText">Filters active</span>
+      <!-- Toggles -->
+      <section
+        class="relative z-10 px-5 py-4 flex flex-col gap-2.5 animate-fade-in"
+      >
+        <!-- Hide Collection Only -->
+        <div
+          class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]"
+        >
+          <div class="flex flex-col gap-[3px]">
+            <span class="text-[13px] font-semibold">Hide Collection Only</span>
+            <span class="text-[11px] text-text-secondary"
+              >Remove pickup-only listings</span
+            >
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="hideCollectionOnly" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Hide International -->
+        <div
+          class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]"
+        >
+          <div class="flex flex-col gap-[3px]">
+            <span class="text-[13px] font-semibold">Hide International</span>
+            <span class="text-[11px] text-text-secondary"
+              >Show only items in your country</span
+            >
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="localItemsOnly" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Price Badges Group -->
+        <div class="setting-group flex flex-col" id="priceBadgesGroup">
+          <div
+            class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]"
+          >
+            <div class="flex flex-col gap-[3px]">
+              <span class="text-[13px] font-semibold"
+                >Price Intelligence Badges</span
+              >
+              <span class="text-[11px] text-text-secondary"
+                >Show deal ratings on items</span
+              >
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="toggle-switch">
+                <input type="checkbox" id="priceBadges" />
+                <span class="toggle-slider"></span>
+              </label>
+              <button
+                class="expand-btn bg-transparent border-0 text-text-secondary cursor-pointer p-1 rounded flex items-center justify-center transition-all duration-150 hover:bg-white/10 hover:text-text-primary"
+                id="expandPriceBadges"
+                aria-expanded="false"
+                title="Advanced Settings"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div
+            class="sub-settings flex-col gap-1 px-3.5 pt-2 pb-3 bg-black/20 rounded-b-xl border border-white/[0.06] border-t-0 -mt-2 mb-0.5"
+            id="priceBadgesSub"
+          >
+            <!-- Exclude Broken -->
+            <div class="flex items-center justify-between gap-3 py-2">
+              <div class="flex flex-col gap-[3px]">
+                <span class="text-[13px] font-semibold"
+                  >Exclude Broken/Parts</span
+                >
+                <span class="text-[11px] text-text-secondary"
+                  >Ignore faulty items in stats</span
+                >
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="excludeBroken" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <!-- Confidence Threshold -->
+            <div class="flex flex-col gap-3 py-2">
+              <div class="flex flex-col gap-[3px]">
+                <span class="text-[13px] font-semibold"
+                  >Grouping Strictness</span
+                >
+                <span class="text-[11px] text-text-secondary" id="confidenceVal"
+                  >70% Threshold</span
+                >
+              </div>
+              <input
+                type="range"
+                id="confidenceThreshold"
+                min="30"
+                max="100"
+                value="70"
+                class="range-slider"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Sticky Filters -->
+        <div
+          class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]"
+        >
+          <div class="flex flex-col gap-[3px]">
+            <span class="text-[13px] font-semibold">Sticky Filters</span>
+            <span class="text-[11px] text-text-secondary"
+              >Keep filters between searches</span
+            >
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="stickyFilters" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="relative z-10 px-5 pt-4 pb-5 border-t border-white/[0.06]">
+        <button
+          class="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-white font-[inherit] text-[13px] font-semibold border-0 rounded-lg cursor-pointer transition-all duration-150 shadow-[0_4px_14px_rgba(54,101,243,0.35)] hover:-translate-y-px hover:shadow-[0_6px_20px_rgba(54,101,243,0.35)] active:translate-y-0 active:shadow-[0_2px_8px_rgba(54,101,243,0.35)]"
+          style="background: linear-gradient(135deg, #3665f3, #4f7af8)"
+          id="applyNow"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-4 h-4"
+          >
+            <path
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          Refresh Current Tab
+        </button>
+      </footer>
     </div>
 
-    <!-- Toggles -->
-    <section class="relative z-10 px-5 py-4 flex flex-col gap-2.5 animate-fade-in">
-
-      <!-- Hide Collection Only -->
-      <div class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]">
-        <div class="flex flex-col gap-[3px]">
-          <span class="text-[13px] font-semibold">Hide Collection Only</span>
-          <span class="text-[11px] text-text-secondary">Remove pickup-only listings</span>
-        </div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="hideCollectionOnly" />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-
-      <!-- Local Items Only -->
-      <div class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]">
-        <div class="flex flex-col gap-[3px]">
-          <span class="text-[13px] font-semibold">Local Items Only</span>
-          <span class="text-[11px] text-text-secondary">Show only items in your country</span>
-        </div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="localItemsOnly" />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-
-      <!-- Price Badges Group -->
-      <div class="setting-group flex flex-col" id="priceBadgesGroup">
-        <div class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]">
-          <div class="flex flex-col gap-[3px]">
-            <span class="text-[13px] font-semibold">Price Intelligence Badges</span>
-            <span class="text-[11px] text-text-secondary">Show deal ratings on items</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <label class="toggle-switch">
-              <input type="checkbox" id="priceBadges" />
-              <span class="toggle-slider"></span>
-            </label>
-            <button class="expand-btn bg-transparent border-0 text-text-secondary cursor-pointer p-1 rounded flex items-center justify-center transition-all duration-150 hover:bg-white/10 hover:text-text-primary"
-                    id="expandPriceBadges" aria-expanded="false" title="Advanced Settings">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
-                   fill="none" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M6 9l6 6 6-6"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        <div class="sub-settings flex-col gap-1 px-3.5 pt-2 pb-3 bg-black/20 rounded-b-xl border border-white/[0.06] border-t-0 -mt-2 mb-0.5"
-             id="priceBadgesSub">
-          <!-- Exclude Broken -->
-          <div class="flex items-center justify-between gap-3 py-2">
-            <div class="flex flex-col gap-[3px]">
-              <span class="text-[13px] font-semibold">Exclude Broken/Parts</span>
-              <span class="text-[11px] text-text-secondary">Ignore faulty items in stats</span>
-            </div>
-            <label class="toggle-switch">
-              <input type="checkbox" id="excludeBroken" />
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-
-          <!-- Confidence Threshold -->
-          <div class="flex flex-col gap-3 py-2">
-            <div class="flex flex-col gap-[3px]">
-              <span class="text-[13px] font-semibold">Grouping Strictness</span>
-              <span class="text-[11px] text-text-secondary" id="confidenceVal">70% Threshold</span>
-            </div>
-            <input type="range" id="confidenceThreshold" min="30" max="100" value="70" class="range-slider" />
-          </div>
-        </div>
-      </div>
-
-      <!-- Sticky Filters -->
-      <div class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]">
-        <div class="flex flex-col gap-[3px]">
-          <span class="text-[13px] font-semibold">Sticky Filters</span>
-          <span class="text-[11px] text-text-secondary">Keep filters between searches</span>
-        </div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="stickyFilters" />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-
-    </section>
-
-    <!-- Footer -->
-    <footer class="relative z-10 px-5 pt-4 pb-5 border-t border-white/[0.06]">
-      <button class="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-white font-[inherit] text-[13px] font-semibold border-0 rounded-lg cursor-pointer transition-all duration-150 shadow-[0_4px_14px_rgba(54,101,243,0.35)] hover:-translate-y-px hover:shadow-[0_6px_20px_rgba(54,101,243,0.35)] active:translate-y-0 active:shadow-[0_2px_8px_rgba(54,101,243,0.35)]"
-              style="background: linear-gradient(135deg, #3665f3, #4f7af8)" id="applyNow">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4">
-          <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Refresh Current Tab
-      </button>
-    </footer>
-
-  </div>
-
-  <script src="popup.js"></script>
-</body>
+    <script src="popup.js"></script>
+  </body>
 </html>

@@ -189,7 +189,7 @@ import { renderDashboard } from './ui/dashboard';
   }
 
   // ══════════════════════════════════════════════════════════
-  // FEATURE 2: Local Items Only
+  // FEATURE 2: Hide International
   // ══════════════════════════════════════════════════════════
 
   function applyLocalItemsOnly() {
@@ -448,7 +448,7 @@ import { renderDashboard } from './ui/dashboard';
         applyStickyFilters();
       }
 
-      // Feature 2: Local Items Only (may redirect — run early)
+      // Feature 2: Hide International (may redirect — run early)
       if (settings.localItemsOnly) {
         applyLocalItemsOnly();
       }

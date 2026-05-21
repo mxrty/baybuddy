@@ -7,29 +7,37 @@
 ## Features
 
 ### 🚫 Hide Collection Only
+
 Automatically hides listings that only offer collection/pickup, so you only see items that can be delivered. Works by scanning delivery text on each listing card.
 
-### 🌍 Local Items Only
+### 🌍 Hide International
+
 Automatically filters search results to show only items located in your country. Works on all eBay regional sites.
 
 ### 🔍 Search Sold Listings
+
 Floating on-page button to instantly switch between active and sold/completed listings with one click. Great for price research and market analysis.
 
 ### 📊 Sold Price Stats
+
 When viewing sold listings, displays a price analytics panel showing:
+
 - Average, median, min, and max sold prices
 - Visual price distribution histogram
 - Automatic currency detection
 
 ### 📌 Sticky Filters
+
 Remembers your active filters (condition, price range, buying format, etc.) and re-applies them when you change your search query. No more losing your "Used" + "Buy It Now" filters every time you search for something new.
 
 ## Installation
 
 ### From Chrome Web Store
-*Coming soon*
+
+_Coming soon_
 
 ### Manual Installation (Developer Mode)
+
 1. Clone this repository:
    ```bash
    git clone https://github.com/mxrty/baybuddy.git
@@ -41,21 +49,21 @@ Remembers your active filters (condition, price range, buying format, etc.) and 
 
 ## Supported eBay Sites
 
-| Site | Domain |
-|------|--------|
-| 🇬🇧 UK | ebay.co.uk |
-| 🇺🇸 US | ebay.com |
-| 🇦🇺 Australia | ebay.com.au |
-| 🇨🇦 Canada | ebay.ca |
-| 🇩🇪 Germany | ebay.de |
-| 🇫🇷 France | ebay.fr |
-| 🇮🇹 Italy | ebay.it |
-| 🇪🇸 Spain | ebay.es |
-| 🇮🇪 Ireland | ebay.ie |
-| 🇳🇱 Netherlands | ebay.nl |
-| 🇦🇹 Austria | ebay.at |
-| 🇨🇭 Switzerland | ebay.ch |
-| 🇵🇱 Poland | ebay.pl |
+| Site           | Domain      |
+| -------------- | ----------- |
+| 🇬🇧 UK          | ebay.co.uk  |
+| 🇺🇸 US          | ebay.com    |
+| 🇦🇺 Australia   | ebay.com.au |
+| 🇨🇦 Canada      | ebay.ca     |
+| 🇩🇪 Germany     | ebay.de     |
+| 🇫🇷 France      | ebay.fr     |
+| 🇮🇹 Italy       | ebay.it     |
+| 🇪🇸 Spain       | ebay.es     |
+| 🇮🇪 Ireland     | ebay.ie     |
+| 🇳🇱 Netherlands | ebay.nl     |
+| 🇦🇹 Austria     | ebay.at     |
+| 🇨🇭 Switzerland | ebay.ch     |
+| 🇵🇱 Poland      | ebay.pl     |
 
 > **Note:** The "Hide Collection Only" feature uses English-language patterns and works best on English-language eBay sites (UK, US, Australia, Canada, Ireland).
 
