@@ -255,7 +255,7 @@ import {
     return currency + value.toFixed(2);
   }
 
-  function createOverviewPanel(stats: any, groupCount: number, currency: string) {
+  function createOverviewPanel(stats: any, clusters: any[], currency: string, settings: any) {
     let panel = document.getElementById('bb-overview-panel');
     let needsAppend = false;
 
@@ -270,28 +270,45 @@ import {
       return;
     }
 
+    let groupingsHtml = '';
+    clusters.forEach((c, i) => {
+      const cStats = calculateGroupStats(c.items, settings.excludeBroken);
+      if (cStats) {
+        groupingsHtml += `
+          <div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.03); border-radius: 4px;">
+            <strong>Group ${i + 1}</strong> (${cStats.validItems.length} items) - Avg: ${formatPrice(cStats.mean, currency)}
+            <ul style="margin: 4px 0 0; padding-left: 20px; color: #575b6e;">
+              ${cStats.validItems.map((item: any) => `<li><a href="${(item.card.querySelector('a.s-item__link, a.s-card__link') as HTMLAnchorElement)?.href || '#'}" target="_blank" style="color:inherit; text-decoration:none;">${item.title.substring(0, 50)}... (${formatPrice(item.price, currency)})</a></li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+    });
+
     const html = `
-      <div style="
+      <details style="
         margin: 16px auto;
-        padding: 12px 16px;
         background: rgba(54, 101, 243, 0.05);
         border: 1px solid rgba(54, 101, 243, 0.2);
         border-radius: 8px;
         font-family: 'Inter', -apple-system, sans-serif;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
         color: #e8eaf0;
       ">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:16px;">📊</span>
-          <span style="font-size:13px; font-weight:600; color: #161822;">Price Intelligence</span>
-          <span style="font-size:12px; color:#575b6e; margin-left:4px;">${stats.validItems.length} valid items in ${groupCount} groups</span>
+        <summary style="padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; list-style: none;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:16px;">📊</span>
+            <span style="font-size:13px; font-weight:600; color: #161822;">Price Intelligence</span>
+            <span style="font-size:12px; color:#575b6e; margin-left:4px;">${stats.validItems.length} valid items in ${clusters.length} groups</span>
+          </div>
+          <div style="display:flex; gap:16px; font-size:13px; align-items: center;">
+            <div><span style="color:#575b6e;">Overall Avg:</span> <strong style="color:#3665f3;">${formatPrice(stats.mean, currency)}</strong></div>
+            <span style="color: #3665f3; font-size: 10px;">▼</span>
+          </div>
+        </summary>
+        <div style="padding: 0 16px 16px; color: #161822; font-size: 12px;">
+          ${groupingsHtml}
         </div>
-        <div style="display:flex; gap:16px; font-size:13px;">
-          <div><span style="color:#575b6e;">Overall Avg:</span> <strong style="color:#3665f3;">${formatPrice(stats.mean, currency)}</strong></div>
-        </div>
-      </div>
+      </details>
     `;
 
     if (panel.innerHTML !== html) {
@@ -330,15 +347,23 @@ import {
     return { card, title, price, condition, tokens: tokenizeTitle(title) };
   }
 
-  function injectBadge(item: ListingItem, badgeData: any, currency: string) {
+  function injectBadge(item: ListingItem, badgeData: any, currency: string, clusterStats?: any) {
     if (!item.card) return;
-    let badge = item.card.querySelector('.bb-price-badge') as HTMLElement;
+    let badgeContainer = item.card.querySelector('.bb-badge-container') as HTMLElement;
     let needsAppend = false;
     
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'bb-price-badge';
-      badge.style.cssText = `
+    if (!badgeContainer) {
+      badgeContainer = document.createElement('details');
+      badgeContainer.className = 'bb-badge-container';
+      badgeContainer.style.cssText = `
+        display: inline-block;
+        position: relative;
+        margin-left: 8px;
+      `;
+      
+      const summary = document.createElement('summary');
+      summary.className = 'bb-price-badge';
+      summary.style.cssText = `
         display: inline-flex;
         align-items: center;
         gap: 4px;
@@ -346,11 +371,35 @@ import {
         font-weight: 500;
         padding: 2px 6px;
         border-radius: 4px;
-        margin-left: 8px;
         font-family: 'Inter', -apple-system, sans-serif;
+        cursor: pointer;
+        list-style: none;
       `;
+      
+      const dropdown = document.createElement('div');
+      dropdown.className = 'bb-badge-dropdown';
+      dropdown.style.cssText = `
+        display: block;
+        margin-top: 8px;
+        font-size: 11px;
+        color: #575b6e;
+        background: #fff;
+        border: 1px solid #ccc;
+        padding: 8px;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        width: max-content;
+        max-width: 300px;
+        white-space: normal;
+      `;
+      
+      badgeContainer.appendChild(summary);
+      badgeContainer.appendChild(dropdown);
       needsAppend = true;
     }
+
+    const badge = badgeContainer.querySelector('.bb-price-badge') as HTMLElement;
+    const dropdown = badgeContainer.querySelector('.bb-badge-dropdown') as HTMLElement;
 
     let targetBg, targetColor, targetHtml;
 
@@ -380,11 +429,27 @@ import {
       badge.style.color = targetColor;
       badge.innerHTML = targetHtml;
     }
+    
+    if (clusterStats) {
+      const otherItems = clusterStats.validItems.filter((i: any) => i.card !== item.card);
+      dropdown.innerHTML = `
+        <strong>Comparable items:</strong>
+        <ul style="margin: 4px 0 0; padding-left: 16px;">
+          ${otherItems.map((i: any) => `<li><a href="${(i.card.querySelector('a.s-item__link, a.s-card__link') as HTMLAnchorElement)?.href || '#'}" target="_blank" style="color:inherit; text-decoration:none;">${i.title.substring(0, 40)}... (${formatPrice(i.price, currency)})</a></li>`).join('')}
+        </ul>
+      `;
+      if (otherItems.length === 0) {
+        dropdown.innerHTML = `<em>No other comparable items</em>`;
+      }
+    } else {
+      dropdown.style.display = 'none';
+      badge.style.cursor = 'default';
+    }
 
     if (needsAppend) {
       const priceContainer = item.card.querySelector('.s-item__price, .s-card__price');
       if (priceContainer) {
-        priceContainer.appendChild(badge);
+        priceContainer.appendChild(badgeContainer);
       }
     }
   }
@@ -407,7 +472,7 @@ import {
     const clusters = clusterListings(listings, settings.confidenceThreshold);
     const overallStats = calculateGroupStats(listings, settings.excludeBroken);
     
-    createOverviewPanel(overallStats, clusters.length, currency);
+    createOverviewPanel(overallStats, clusters, currency, settings);
 
     for (const cluster of clusters) {
       const stats = calculateGroupStats(cluster.items, settings.excludeBroken);
@@ -428,11 +493,11 @@ import {
         } else if (stats) {
           const diff = item.price - stats.mean;
           if (diff < -0.5 * stats.stdDev) {
-            injectBadge(item, { type: 'good', mean: stats.mean }, currency);
+            injectBadge(item, { type: 'good', mean: stats.mean }, currency, stats);
           } else if (diff > 0.5 * stats.stdDev) {
-            injectBadge(item, { type: 'high', mean: stats.mean }, currency);
+            injectBadge(item, { type: 'high', mean: stats.mean }, currency, stats);
           } else {
-            injectBadge(item, { type: 'fair', mean: stats.mean }, currency);
+            injectBadge(item, { type: 'fair', mean: stats.mean }, currency, stats);
           }
         }
       }
