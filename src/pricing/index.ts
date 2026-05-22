@@ -5,13 +5,20 @@ import {
 } from "./tokenize";
 import { parseRawListings } from "./parse";
 import { resetClusterIdCounter, clusterListings } from "./cluster";
-import { computeGroupStats, computeRelevance, rateListing, rateListingVsSold } from "./analyse";
+import {
+  computeGroupStats,
+  computeRelevance,
+  computeStats,
+  rateListing,
+  rateListingVsSold,
+} from "./analyse";
 import type {
   RawListing,
   PricingResult,
   PricingSettings,
   PricingGroup,
   ParsedListing,
+  GroupStatistics,
 } from "./types";
 
 export type {
@@ -247,4 +254,30 @@ export function analysePricingVsSold(
     },
     searchTerm,
   };
+}
+
+export interface ItemLookupResult {
+  stats: GroupStatistics;
+  examples: { title: string; totalPrice: number; link: string }[];
+  totalComps: number;
+}
+
+/**
+ * Aggregate an ad-hoc set of sold comps (from a panel item search) into a single
+ * price distribution. Standalone: does not cluster or re-rate page listings.
+ */
+export function analyseItemLookup(rawComps: RawListing[]): ItemLookupResult {
+  const valid = parseRawListings(rawComps).filter(
+    (l) => !l.isJunk && !l.isExcluded && l.totalPrice > 0,
+  );
+
+  const stats = computeStats(valid.map((l) => l.totalPrice));
+
+  const examples = valid.slice(0, 6).map((l) => ({
+    title: l.title,
+    totalPrice: l.totalPrice,
+    link: l.link,
+  }));
+
+  return { stats, examples, totalComps: valid.length };
 }

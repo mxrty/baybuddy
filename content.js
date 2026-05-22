@@ -810,6 +810,18 @@
       searchTerm
     };
   }
+  function analyseItemLookup(rawComps) {
+    const valid = parseRawListings(rawComps).filter(
+      (l) => !l.isJunk && !l.isExcluded && l.totalPrice > 0
+    );
+    const stats = computeStats(valid.map((l) => l.totalPrice));
+    const examples = valid.slice(0, 6).map((l) => ({
+      title: l.title,
+      totalPrice: l.totalPrice,
+      link: l.link
+    }));
+    return { stats, examples, totalComps: valid.length };
+  }
 
   // src/utils.ts
   function detectCurrency(host) {
@@ -909,6 +921,173 @@
     }
   }
 
+  // src/pricing/soldFetch.ts
+  var CACHE_TTL_MS = 24 * 60 * 60 * 1e3;
+  var FETCH_DELAY_MS = 400;
+  var PAGES_TO_FETCH = 5;
+  function buildSoldUrl(origin, searchTerm, page) {
+    const encoded = encodeURIComponent(searchTerm.trim());
+    return `${origin}/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1&_pgn=${page}`;
+  }
+  function cacheKey(searchTerm) {
+    return `bb_sold_${searchTerm.trim().toLowerCase().replace(/\s+/g, " ")}`;
+  }
+  async function getCached(searchTerm) {
+    const key = cacheKey(searchTerm);
+    try {
+      const result = await chrome.storage.local.get(key);
+      const entry = result[key];
+      if (!entry) return null;
+      if (Date.now() - entry.fetchedAt > CACHE_TTL_MS) return null;
+      return entry.listings;
+    } catch {
+      return null;
+    }
+  }
+  async function setCached(searchTerm, listings) {
+    const key = cacheKey(searchTerm);
+    const entry = { listings, fetchedAt: Date.now() };
+    try {
+      await chrome.storage.local.set({ [key]: entry });
+    } catch {
+    }
+  }
+  var CONDITION_SELECTORS = [
+    ".s-item__subtitle",
+    ".s-item__secondary-info",
+    ".SECONDARY_INFO",
+    ".s-card__subtitle",
+    ".s-item__condition",
+    ".s-card__attribute-row"
+  ];
+  var DELIVERY_SELECTORS = [
+    ".s-card__shipping",
+    ".s-card__delivery",
+    ".s-item__shipping",
+    ".s-item__localDelivery",
+    ".s-item__delivery"
+  ];
+  function parseSoldPage(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    const cardSelectors = [
+      "li.s-card",
+      ".s-card",
+      "li.s-item",
+      ".srp-results .s-item",
+      "ul.srp-results > li"
+    ];
+    let cards = [];
+    for (const sel of cardSelectors) {
+      const found = doc.querySelectorAll(sel);
+      if (found.length > 0) {
+        cards = found;
+        break;
+      }
+    }
+    const results = [];
+    cards.forEach((card) => {
+      if (card.classList.contains("s-item__pl-on-bottom") || card.classList.contains("s-card__pl-on-bottom"))
+        return;
+      const titleEl = card.querySelector(".s-item__title, .s-card__title");
+      const priceEl = card.querySelector(".s-item__price, .s-card__price");
+      if (!titleEl || !priceEl) return;
+      const conditionText = CONDITION_SELECTORS.flatMap(
+        (sel) => Array.from(card.querySelectorAll(sel))
+      ).map((el) => el.textContent || "").join(" ").trim();
+      const deliveryText = DELIVERY_SELECTORS.map(
+        (sel) => card.querySelector(sel)?.textContent || ""
+      ).find((t) => t.length > 0) ?? "";
+      const linkEl = card.querySelector(
+        "a.s-item__link, a.s-card__link"
+      );
+      results.push({
+        title: titleEl.textContent || "",
+        priceText: priceEl.textContent || "",
+        condition: conditionText,
+        link: linkEl?.getAttribute("href") || "",
+        deliveryText
+      });
+    });
+    return results;
+  }
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  async function fetchSoldListings(searchTerm, opts = {}) {
+    const cached = await getCached(searchTerm);
+    if (cached) return cached;
+    const origin = opts.origin ?? window.location.origin;
+    const startPage = opts.skipPage1 ? 2 : 1;
+    const results = [];
+    for (let page = startPage; page <= PAGES_TO_FETCH; page++) {
+      if (page > startPage) await sleep(FETCH_DELAY_MS);
+      const url = buildSoldUrl(origin, searchTerm, page);
+      try {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          headers: { Accept: "text/html" }
+        });
+        if (!response.ok) break;
+        const html = await response.text();
+        results.push(...parseSoldPage(html));
+      } catch {
+        break;
+      }
+    }
+    if (results.length > 0) {
+      await setCached(searchTerm, results);
+    }
+    console.log(
+      `[BayBuddy] soldFetch: fetched ${results.length} sold listings for "${searchTerm}"`
+    );
+    return results;
+  }
+  var GAP_FILL_CAP = 10;
+  async function performGapFill(result, origin) {
+    const lowConfidence = result.assessments.filter(
+      (a) => a.matchedGroup !== null && (a.matchedGroup.confidence === "low" || a.matchedGroup.confidence === "insufficient")
+    );
+    if (lowConfidence.length === 0) return result;
+    const variantMap = /* @__PURE__ */ new Map();
+    for (const a of lowConfidence) {
+      const sig = [...a.listing.tokens.identity].sort().join(" ");
+      if (!sig) continue;
+      const existing = variantMap.get(sig);
+      if (existing) {
+        existing.count++;
+      } else {
+        variantMap.set(sig, { group: a.matchedGroup, count: 1 });
+      }
+    }
+    if (variantMap.size === 0) return result;
+    const variants = [...variantMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, GAP_FILL_CAP);
+    const fetchOrigin = origin ?? (typeof window !== "undefined" ? window.location.origin : "");
+    const compsPerGroup = /* @__PURE__ */ new Map();
+    for (let i = 0; i < variants.length; i++) {
+      const [sig, { group }] = variants[i];
+      if (i > 0) await sleep(FETCH_DELAY_MS);
+      let comps;
+      try {
+        comps = await fetchSoldListings(sig, { origin: fetchOrigin });
+      } catch {
+        continue;
+      }
+      if (comps.length === 0) continue;
+      const existing = compsPerGroup.get(group);
+      if (existing) {
+        existing.push(...comps);
+      } else {
+        compsPerGroup.set(group, [...comps]);
+      }
+      console.log(
+        `[BayBuddy] gapFill: fetched ${comps.length} comps for variant "${sig}"`
+      );
+    }
+    if (compsPerGroup.size === 0) return result;
+    return mergeGapFillComps(result, compsPerGroup);
+  }
+
   // src/ui/dashboard.ts
   function fmtPrice2(amount, currency) {
     return `${currency}${amount.toFixed(2)}`;
@@ -942,6 +1121,9 @@
   var _currentCurrency = "";
   var _sort = "confidence";
   var _hideInsufficient = false;
+  var _itemSearchQuery = "";
+  var _itemSearchStatus = "idle";
+  var _itemSearchResult = null;
   function sortedFilteredGroups(groups) {
     let out = _hideInsufficient ? groups.filter((g) => g.confidence !== "insufficient") : [...groups];
     if (_sort === "count") {
@@ -1147,6 +1329,72 @@
       attachGroupToggleListeners(listEl);
     }
   }
+  function renderItemSearchResults(currency) {
+    if (_itemSearchStatus === "idle") return "";
+    if (_itemSearchStatus === "loading") {
+      return `<div style="font-size:11px;color:#888;padding:8px 2px;">Searching sold listings&hellip;</div>`;
+    }
+    if (_itemSearchStatus === "error") {
+      return `<div style="font-size:11px;color:#d9534f;padding:8px 2px;">Lookup failed. Try again.</div>`;
+    }
+    const r = _itemSearchResult;
+    if (!r || r.totalComps === 0) {
+      return `<div style="font-size:11px;color:#888;padding:8px 2px;">No sold listings found for &ldquo;${escapeHtml(_itemSearchQuery.trim())}&rdquo;.</div>`;
+    }
+    const { stats } = r;
+    const summary = `<div style="display:flex;align-items:baseline;gap:6px;margin-top:8px;"><span style="font-size:14px;font-weight:700;color:#3665f3;">${fmtPrice2(stats.median, currency)}</span><span style="font-size:10px;color:#888;">median &middot; ${r.totalComps} sold</span></div><div style="font-size:10px;color:#888;margin-top:1px;">IQR ${fmtPrice2(stats.p25, currency)}&ndash;${fmtPrice2(stats.p75, currency)}</div>`;
+    const examplesRows = r.examples.map((e) => {
+      const href = escapeHtml(e.link || "#");
+      const title = escapeHtml(e.title.substring(0, 50)) + (e.title.length > 50 ? "&hellip;" : "");
+      return `<li style="margin:2px 0;"><a href="${href}" target="_blank" rel="noopener" style="color:#3665f3;text-decoration:none;font-size:11px;">${title} &mdash; ${fmtPrice2(e.totalPrice, currency)}</a></li>`;
+    }).join("");
+    const examples = examplesRows ? `<div style="font-size:10px;color:#888;margin-top:8px;">Sold examples</div><ul style="margin:2px 0 0;padding-left:16px;color:#575b6e;">${examplesRows}</ul>` : "";
+    return summary + renderBoxPlot(stats, currency) + examples;
+  }
+  function updateItemSearchResults(panel) {
+    const el = panel.querySelector("#bb-item-search-results");
+    if (el) el.innerHTML = renderItemSearchResults(_currentCurrency);
+  }
+  async function runItemSearch(panel) {
+    const query = _itemSearchQuery.trim();
+    if (!query || _itemSearchStatus === "loading") return;
+    _itemSearchStatus = "loading";
+    updateItemSearchResults(panel);
+    try {
+      const comps = await fetchSoldListings(query);
+      _itemSearchResult = analyseItemLookup(comps);
+      _itemSearchStatus = "done";
+    } catch {
+      _itemSearchStatus = "error";
+    }
+    updateItemSearchResults(panel);
+  }
+  function ensureItemSearchEl(panel) {
+    const existing = panel.querySelector("#bb-item-search");
+    if (existing) return existing;
+    const el = document.createElement("div");
+    el.id = "bb-item-search";
+    el.style.cssText = "background:#fff;border:1px solid rgba(54,101,243,0.2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);margin-bottom:8px;padding:12px 16px;";
+    el.innerHTML = `<div style="font-size:11px;font-weight:700;color:#161822;margin-bottom:6px;letter-spacing:0.3px;text-transform:uppercase;">&#x1F50D; Look up sold price</div><div style="display:flex;gap:6px;"><input id="bb-item-search-input" type="text" placeholder="e.g. iphone 16 128gb" value="${escapeHtml(_itemSearchQuery)}" style="flex:1;min-width:0;font-size:12px;padding:5px 8px;border:1px solid rgba(0,0,0,0.15);border-radius:4px;font-family:inherit;color:#161822;background:#fff;" /><button id="bb-item-search-btn" style="font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;border:1px solid #3665f3;background:#3665f3;color:#fff;cursor:pointer;white-space:nowrap;">Search</button></div><div id="bb-item-search-results" style="max-height:220px;overflow-y:auto;">${renderItemSearchResults(_currentCurrency)}</div>`;
+    panel.insertBefore(el, panel.firstChild);
+    const input = el.querySelector("#bb-item-search-input");
+    const btn = el.querySelector("#bb-item-search-btn");
+    if (input) {
+      input.addEventListener("input", () => {
+        _itemSearchQuery = input.value;
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void runItemSearch(panel);
+        }
+      });
+    }
+    if (btn) {
+      btn.addEventListener("click", () => void runItemSearch(panel));
+    }
+    return el;
+  }
   function renderDashboard(result, root) {
     const currency = detectCurrency(window.location.host);
     _lastResult = result;
@@ -1164,183 +1412,23 @@
       panel.remove();
       return;
     }
+    ensureItemSearchEl(panel);
+    let mainBlock = panel.querySelector("#bb-main-block");
+    if (!mainBlock) {
+      mainBlock = document.createElement("div");
+      mainBlock.id = "bb-main-block";
+      panel.appendChild(mainBlock);
+    }
     const rangeStr = summary.overallPriceRange.max > 0 ? `${fmtPrice2(summary.overallPriceRange.min, currency)}&ndash;${fmtPrice2(summary.overallPriceRange.max, currency)}` : "n/a";
     const topDealsHtml = isPageViewingSold() ? "" : renderTopDeals(assessments, currency);
     const groupsListHtml = renderGroupsListHtml(rootGroups, currency);
-    panel.innerHTML = `<details style="background:#fff;border:1px solid rgba(54,101,243,0.2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);"><summary style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;background:rgba(54,101,243,0.05);border-radius:8px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">&#x1F4CA;</span><span style="font-size:13px;font-weight:600;">Price Intelligence</span><span style="font-size:12px;color:#575b6e;">${summary.totalListingsAnalysed} items &middot; ${summary.totalGroups} groups</span></div><div style="display:flex;gap:16px;font-size:13px;align-items:center;"><span style="color:#575b6e;">Range: <strong style="color:#3665f3;">${rangeStr}</strong></span><span style="color:#3665f3;font-size:10px;">&#x25BC;</span></div></summary><div style="padding:0 16px 16px;font-size:12px;max-height:calc(100vh - 160px);overflow-y:auto;">` + topDealsHtml + renderControls() + `<div id="bb-groups-list">` + groupsListHtml + `</div></div></details>`;
-    attachScrollListeners(panel);
-    attachControlListeners(panel);
+    mainBlock.innerHTML = `<details style="background:#fff;border:1px solid rgba(54,101,243,0.2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);"><summary style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;background:rgba(54,101,243,0.05);border-radius:8px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">&#x1F4CA;</span><span style="font-size:13px;font-weight:600;">Price Intelligence</span><span style="font-size:12px;color:#575b6e;">${summary.totalListingsAnalysed} items &middot; ${summary.totalGroups} groups</span></div><div style="display:flex;gap:16px;font-size:13px;align-items:center;"><span style="color:#575b6e;">Range: <strong style="color:#3665f3;">${rangeStr}</strong></span><span style="color:#3665f3;font-size:10px;">&#x25BC;</span></div></summary><div style="padding:0 16px 16px;font-size:12px;max-height:calc(100vh - 260px);overflow-y:auto;">` + topDealsHtml + renderControls() + `<div id="bb-groups-list">` + groupsListHtml + `</div></div></details>`;
+    attachScrollListeners(mainBlock);
+    attachControlListeners(mainBlock);
     if (needsAppend) {
       document.body.appendChild(panel);
     }
     void root;
-  }
-
-  // src/pricing/soldFetch.ts
-  var CACHE_TTL_MS = 24 * 60 * 60 * 1e3;
-  var FETCH_DELAY_MS = 400;
-  var PAGES_TO_FETCH = 5;
-  function buildSoldUrl(origin, searchTerm, page) {
-    const encoded = encodeURIComponent(searchTerm.trim());
-    return `${origin}/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1&_pgn=${page}`;
-  }
-  function cacheKey(searchTerm) {
-    return `bb_sold_${searchTerm.trim().toLowerCase().replace(/\s+/g, " ")}`;
-  }
-  async function getCached(searchTerm) {
-    const key = cacheKey(searchTerm);
-    try {
-      const result = await chrome.storage.local.get(key);
-      const entry = result[key];
-      if (!entry) return null;
-      if (Date.now() - entry.fetchedAt > CACHE_TTL_MS) return null;
-      return entry.listings;
-    } catch {
-      return null;
-    }
-  }
-  async function setCached(searchTerm, listings) {
-    const key = cacheKey(searchTerm);
-    const entry = { listings, fetchedAt: Date.now() };
-    try {
-      await chrome.storage.local.set({ [key]: entry });
-    } catch {
-    }
-  }
-  var CONDITION_SELECTORS = [
-    ".s-item__subtitle",
-    ".s-item__secondary-info",
-    ".SECONDARY_INFO",
-    ".s-card__subtitle",
-    ".s-item__condition",
-    ".s-card__attribute-row"
-  ];
-  var DELIVERY_SELECTORS = [
-    ".s-card__shipping",
-    ".s-card__delivery",
-    ".s-item__shipping",
-    ".s-item__localDelivery",
-    ".s-item__delivery"
-  ];
-  function parseSoldPage(html) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, "text/html");
-    const cardSelectors = [
-      "li.s-card",
-      ".s-card",
-      "li.s-item",
-      ".srp-results .s-item",
-      "ul.srp-results > li"
-    ];
-    let cards = [];
-    for (const sel of cardSelectors) {
-      const found = doc.querySelectorAll(sel);
-      if (found.length > 0) {
-        cards = found;
-        break;
-      }
-    }
-    const results = [];
-    cards.forEach((card) => {
-      if (card.classList.contains("s-item__pl-on-bottom") || card.classList.contains("s-card__pl-on-bottom"))
-        return;
-      const titleEl = card.querySelector(".s-item__title, .s-card__title");
-      const priceEl = card.querySelector(".s-item__price, .s-card__price");
-      if (!titleEl || !priceEl) return;
-      const conditionText = CONDITION_SELECTORS.flatMap(
-        (sel) => Array.from(card.querySelectorAll(sel))
-      ).map((el) => el.textContent || "").join(" ").trim();
-      const deliveryText = DELIVERY_SELECTORS.map(
-        (sel) => card.querySelector(sel)?.textContent || ""
-      ).find((t) => t.length > 0) ?? "";
-      const linkEl = card.querySelector(
-        "a.s-item__link, a.s-card__link"
-      );
-      results.push({
-        title: titleEl.textContent || "",
-        priceText: priceEl.textContent || "",
-        condition: conditionText,
-        link: linkEl?.getAttribute("href") || "",
-        deliveryText
-      });
-    });
-    return results;
-  }
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-  async function fetchSoldListings(searchTerm, opts = {}) {
-    const cached = await getCached(searchTerm);
-    if (cached) return cached;
-    const origin = opts.origin ?? window.location.origin;
-    const startPage = opts.skipPage1 ? 2 : 1;
-    const results = [];
-    for (let page = startPage; page <= PAGES_TO_FETCH; page++) {
-      if (page > startPage) await sleep(FETCH_DELAY_MS);
-      const url = buildSoldUrl(origin, searchTerm, page);
-      try {
-        const response = await fetch(url, {
-          credentials: "same-origin",
-          headers: { Accept: "text/html" }
-        });
-        if (!response.ok) break;
-        const html = await response.text();
-        results.push(...parseSoldPage(html));
-      } catch {
-        break;
-      }
-    }
-    if (results.length > 0) {
-      await setCached(searchTerm, results);
-    }
-    console.log(
-      `[BayBuddy] soldFetch: fetched ${results.length} sold listings for "${searchTerm}"`
-    );
-    return results;
-  }
-  var GAP_FILL_CAP = 10;
-  async function performGapFill(result, origin) {
-    const lowConfidence = result.assessments.filter(
-      (a) => a.matchedGroup !== null && (a.matchedGroup.confidence === "low" || a.matchedGroup.confidence === "insufficient")
-    );
-    if (lowConfidence.length === 0) return result;
-    const variantMap = /* @__PURE__ */ new Map();
-    for (const a of lowConfidence) {
-      const sig = [...a.listing.tokens.identity].sort().join(" ");
-      if (!sig) continue;
-      const existing = variantMap.get(sig);
-      if (existing) {
-        existing.count++;
-      } else {
-        variantMap.set(sig, { group: a.matchedGroup, count: 1 });
-      }
-    }
-    if (variantMap.size === 0) return result;
-    const variants = [...variantMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, GAP_FILL_CAP);
-    const fetchOrigin = origin ?? (typeof window !== "undefined" ? window.location.origin : "");
-    const compsPerGroup = /* @__PURE__ */ new Map();
-    for (let i = 0; i < variants.length; i++) {
-      const [sig, { group }] = variants[i];
-      if (i > 0) await sleep(FETCH_DELAY_MS);
-      let comps;
-      try {
-        comps = await fetchSoldListings(sig, { origin: fetchOrigin });
-      } catch {
-        continue;
-      }
-      if (comps.length === 0) continue;
-      const existing = compsPerGroup.get(group);
-      if (existing) {
-        existing.push(...comps);
-      } else {
-        compsPerGroup.set(group, [...comps]);
-      }
-      console.log(
-        `[BayBuddy] gapFill: fetched ${comps.length} comps for variant "${sig}"`
-      );
-    }
-    if (compsPerGroup.size === 0) return result;
-    return mergeGapFillComps(result, compsPerGroup);
   }
 
   // src/content.ts

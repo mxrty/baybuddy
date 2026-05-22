@@ -1,4 +1,7 @@
 import { detectCurrency } from "../utils";
+import { analyseItemLookup } from "../pricing";
+import type { ItemLookupResult } from "../pricing";
+import { fetchSoldListings } from "../pricing/soldFetch";
 import type { PricingResult, PricingGroup, ListingAssessment, GroupStatistics } from "../pricing/types";
 
 function fmtPrice(amount: number, currency: string): string {
@@ -46,6 +49,13 @@ let _currentCurrency = "";
 type SortKey = "confidence" | "count" | "median";
 let _sort: SortKey = "confidence";
 let _hideInsufficient = false;
+
+// ── Item price-search state ──────────────────────────────────
+
+type ItemSearchStatus = "idle" | "loading" | "done" | "error";
+let _itemSearchQuery = "";
+let _itemSearchStatus: ItemSearchStatus = "idle";
+let _itemSearchResult: ItemLookupResult | null = null;
 
 function sortedFilteredGroups(groups: PricingGroup[]): PricingGroup[] {
   let out = _hideInsufficient
@@ -431,6 +441,137 @@ function rebuildGroupsSection(panel: HTMLElement): void {
   }
 }
 
+// ── Item price search (panel lookup) ────────────────────────
+
+function renderItemSearchResults(currency: string): string {
+  if (_itemSearchStatus === "idle") return "";
+  if (_itemSearchStatus === "loading") {
+    return (
+      `<div style="font-size:11px;color:#888;padding:8px 2px;">` +
+      `Searching sold listings&hellip;</div>`
+    );
+  }
+  if (_itemSearchStatus === "error") {
+    return (
+      `<div style="font-size:11px;color:#d9534f;padding:8px 2px;">` +
+      `Lookup failed. Try again.</div>`
+    );
+  }
+
+  const r = _itemSearchResult;
+  if (!r || r.totalComps === 0) {
+    return (
+      `<div style="font-size:11px;color:#888;padding:8px 2px;">` +
+      `No sold listings found for &ldquo;${escapeHtml(_itemSearchQuery.trim())}&rdquo;.</div>`
+    );
+  }
+
+  const { stats } = r;
+
+  const summary =
+    `<div style="display:flex;align-items:baseline;gap:6px;margin-top:8px;">` +
+    `<span style="font-size:14px;font-weight:700;color:#3665f3;">` +
+    `${fmtPrice(stats.median, currency)}</span>` +
+    `<span style="font-size:10px;color:#888;">median &middot; ${r.totalComps} sold</span>` +
+    `</div>` +
+    `<div style="font-size:10px;color:#888;margin-top:1px;">` +
+    `IQR ${fmtPrice(stats.p25, currency)}&ndash;${fmtPrice(stats.p75, currency)}</div>`;
+
+  const examplesRows = r.examples
+    .map((e) => {
+      const href = escapeHtml(e.link || "#");
+      const title =
+        escapeHtml(e.title.substring(0, 50)) +
+        (e.title.length > 50 ? "&hellip;" : "");
+      return (
+        `<li style="margin:2px 0;">` +
+        `<a href="${href}" target="_blank" rel="noopener" ` +
+        `style="color:#3665f3;text-decoration:none;font-size:11px;">` +
+        `${title} &mdash; ${fmtPrice(e.totalPrice, currency)}</a></li>`
+      );
+    })
+    .join("");
+
+  const examples = examplesRows
+    ? `<div style="font-size:10px;color:#888;margin-top:8px;">Sold examples</div>` +
+      `<ul style="margin:2px 0 0;padding-left:16px;color:#575b6e;">${examplesRows}</ul>`
+    : "";
+
+  return summary + renderBoxPlot(stats, currency) + examples;
+}
+
+function updateItemSearchResults(panel: HTMLElement): void {
+  const el = panel.querySelector<HTMLElement>("#bb-item-search-results");
+  if (el) el.innerHTML = renderItemSearchResults(_currentCurrency);
+}
+
+async function runItemSearch(panel: HTMLElement): Promise<void> {
+  const query = _itemSearchQuery.trim();
+  if (!query || _itemSearchStatus === "loading") return;
+
+  _itemSearchStatus = "loading";
+  updateItemSearchResults(panel);
+
+  try {
+    const comps = await fetchSoldListings(query);
+    _itemSearchResult = analyseItemLookup(comps);
+    _itemSearchStatus = "done";
+  } catch {
+    _itemSearchStatus = "error";
+  }
+  updateItemSearchResults(panel);
+}
+
+// Created once and preserved across panel re-renders so the input text, focus,
+// and any in-flight/completed lookup survive eBay DOM mutations.
+function ensureItemSearchEl(panel: HTMLElement): HTMLElement {
+  const existing = panel.querySelector<HTMLElement>("#bb-item-search");
+  if (existing) return existing;
+
+  const el = document.createElement("div");
+  el.id = "bb-item-search";
+  el.style.cssText =
+    "background:#fff;border:1px solid rgba(54,101,243,0.2);border-radius:8px;" +
+    "box-shadow:0 4px 16px rgba(0,0,0,0.12);margin-bottom:8px;padding:12px 16px;";
+
+  el.innerHTML =
+    `<div style="font-size:11px;font-weight:700;color:#161822;margin-bottom:6px;` +
+    `letter-spacing:0.3px;text-transform:uppercase;">&#x1F50D; Look up sold price</div>` +
+    `<div style="display:flex;gap:6px;">` +
+    `<input id="bb-item-search-input" type="text" placeholder="e.g. iphone 16 128gb" ` +
+    `value="${escapeHtml(_itemSearchQuery)}" ` +
+    `style="flex:1;min-width:0;font-size:12px;padding:5px 8px;border:1px solid rgba(0,0,0,0.15);` +
+    `border-radius:4px;font-family:inherit;color:#161822;background:#fff;" />` +
+    `<button id="bb-item-search-btn" style="font-size:11px;font-weight:600;padding:5px 10px;` +
+    `border-radius:4px;border:1px solid #3665f3;background:#3665f3;color:#fff;cursor:pointer;` +
+    `white-space:nowrap;">Search</button>` +
+    `</div>` +
+    `<div id="bb-item-search-results" style="max-height:220px;overflow-y:auto;">` +
+    `${renderItemSearchResults(_currentCurrency)}</div>`;
+
+  panel.insertBefore(el, panel.firstChild);
+
+  const input = el.querySelector<HTMLInputElement>("#bb-item-search-input");
+  const btn = el.querySelector<HTMLButtonElement>("#bb-item-search-btn");
+
+  if (input) {
+    input.addEventListener("input", () => {
+      _itemSearchQuery = input.value;
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void runItemSearch(panel);
+      }
+    });
+  }
+  if (btn) {
+    btn.addEventListener("click", () => void runItemSearch(panel));
+  }
+
+  return el;
+}
+
 // ── Main entry point ────────────────────────────────────────
 
 export function renderDashboard(
@@ -462,6 +603,17 @@ export function renderDashboard(
     return;
   }
 
+  // Persistent item-search card (top), created once — survives re-renders.
+  ensureItemSearchEl(panel);
+
+  // Main block is rebuilt on every render; the item-search card is not.
+  let mainBlock = panel.querySelector<HTMLElement>("#bb-main-block");
+  if (!mainBlock) {
+    mainBlock = document.createElement("div");
+    mainBlock.id = "bb-main-block";
+    panel.appendChild(mainBlock);
+  }
+
   const rangeStr =
     summary.overallPriceRange.max > 0
       ? `${fmtPrice(summary.overallPriceRange.min, currency)}&ndash;${fmtPrice(summary.overallPriceRange.max, currency)}`
@@ -473,7 +625,7 @@ export function renderDashboard(
 
   const groupsListHtml = renderGroupsListHtml(rootGroups, currency);
 
-  panel.innerHTML =
+  mainBlock.innerHTML =
     `<details style="background:#fff;border:1px solid rgba(54,101,243,0.2);` +
     `border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);">` +
     `<summary style="padding:12px 16px;display:flex;align-items:center;` +
@@ -490,7 +642,7 @@ export function renderDashboard(
     `<span style="color:#3665f3;font-size:10px;">&#x25BC;</span>` +
     `</div></summary>` +
     `<div style="padding:0 16px 16px;font-size:12px;` +
-    `max-height:calc(100vh - 160px);overflow-y:auto;">` +
+    `max-height:calc(100vh - 260px);overflow-y:auto;">` +
     topDealsHtml +
     renderControls() +
     `<div id="bb-groups-list">` +
@@ -499,8 +651,8 @@ export function renderDashboard(
     `</div>` +
     `</details>`;
 
-  attachScrollListeners(panel);
-  attachControlListeners(panel);
+  attachScrollListeners(mainBlock);
+  attachControlListeners(mainBlock);
 
   if (needsAppend) {
     document.body.appendChild(panel);
