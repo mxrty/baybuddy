@@ -53,11 +53,28 @@ const STOPWORDS = new Set([
   "any",
 ]);
 
+// Size/region codes: uk9, us10.5, eu43
+const SIZE_CODE_RE = /^(uk|us|eu)\d+(\.\d+)?$/i;
+
+// Shoe width codes: 2e, 4e, 2d, etc.
+const SHOE_WIDTH_RE = /^\d{1,2}[a-e]$/i;
+
+// Clothing sizes (xl has no digits so won't be model-shaped; 2xl does)
+const CLOTHING_SIZE_RE = /^(xs|xl|xxl|2xl|3xl|4xl|5xl|xxxl|xxxxl)$/i;
+
 // Per-run memo — cleared each analysePricing run
 const memoMap = new Map<string, WeightedTokens>();
 
 export function clearTokenizeCache(): void {
   memoMap.clear();
+}
+
+// Strip apostrophes and normalise gore-tex variants before tokenisation.
+// Applied before lowercasing so word-boundary matching works correctly.
+function normalizeTitle(title: string): string {
+  return title
+    .replace(/'/g, "")
+    .replace(/\bgore[\s-]tex\b/gi, "goretex");
 }
 
 function isModelShaped(tok: string): boolean {
@@ -68,6 +85,20 @@ function isCapacity(tok: string): boolean {
   return (
     /^\d+(?:\.\d+)?(?:TB|GB|MB|KB|GHz|MHz|MP|mAh|W|V)s?$/i.test(tok) ||
     /^\d+-(?:piece|pieces|pack|packs|pcs|set|sets)$/i.test(tok)
+  );
+}
+
+// Standalone 3-4 digit numbers are treated as model numbers (e.g. 574, 990, 9060).
+function isStandaloneModel(tok: string): boolean {
+  return /^\d{3,4}$/.test(tok);
+}
+
+// Tokens that represent size, width, colour, or condition — should NOT separate comps.
+function isVariant(tok: string): boolean {
+  return (
+    SIZE_CODE_RE.test(tok) ||
+    SHOE_WIDTH_RE.test(tok) ||
+    CLOTHING_SIZE_RE.test(tok)
   );
 }
 
@@ -144,7 +175,7 @@ export function discoverIdentityVocab(
     const quartile = price <= q1 ? 0 : price <= q2 ? 1 : price <= q3 ? 2 : 3;
     const seen = new Set<string>();
 
-    for (const tok of extractRawTokens(titles[idx])) {
+    for (const tok of extractRawTokens(normalizeTitle(titles[idx]))) {
       if (isModelShaped(tok) || isCapacity(tok)) {
         vocab.add(tok);
         continue;
@@ -180,20 +211,28 @@ export function tokenize(
   title: string,
   identityVocab: Set<string>,
 ): WeightedTokens {
-  const cacheKey = title;
+  const normalized = normalizeTitle(title);
+  const cacheKey = normalized.toLowerCase();
   const cached = memoMap.get(cacheKey);
   if (cached) return cached;
 
-  const lower = title.toLowerCase();
+  const model: string[] = [];
+  const variant: string[] = [];
   const identity: string[] = [];
   const descriptors: string[] = [];
   const noise = new Set<string>();
   const raw = new Set<string>();
 
-  for (const tok of extractRawTokens(lower)) {
+  for (const tok of extractRawTokens(normalized)) {
     raw.add(tok);
 
-    if (isModelShaped(tok) || isCapacity(tok) || identityVocab.has(tok)) {
+    if (isVariant(tok)) {
+      variant.push(tok);
+      // variants intentionally omitted from identity — they should not gate comp matching
+    } else if (isModelShaped(tok) || isCapacity(tok) || isStandaloneModel(tok)) {
+      model.push(tok);
+      identity.push(tok);
+    } else if (identityVocab.has(tok)) {
       identity.push(tok);
     } else if (tok.length < 2 || STOPWORDS.has(tok) || /^\d+$/.test(tok)) {
       noise.add(tok);
@@ -202,9 +241,24 @@ export function tokenize(
     }
   }
 
-  const result: WeightedTokens = { identity, descriptors, noise, raw };
+  const result: WeightedTokens = { model, variant, identity, descriptors, noise, raw };
   memoMap.set(cacheKey, result);
   return result;
+}
+
+/**
+ * Extract the set of structural model tokens from a title (brand/vocab not included).
+ * Used to key listings by product identity for comp grouping.
+ */
+export function extractModelKey(title: string): Set<string> {
+  const tokens = extractRawTokens(normalizeTitle(title));
+  const modelTokens = new Set<string>();
+  for (const tok of tokens) {
+    if (!isVariant(tok) && (isModelShaped(tok) || isCapacity(tok) || isStandaloneModel(tok))) {
+      modelTokens.add(tok);
+    }
+  }
+  return modelTokens;
 }
 
 /**

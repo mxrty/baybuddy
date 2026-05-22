@@ -106,15 +106,27 @@
     "some",
     "any"
   ]);
+  var SIZE_CODE_RE = /^(uk|us|eu)\d+(\.\d+)?$/i;
+  var SHOE_WIDTH_RE = /^\d{1,2}[a-e]$/i;
+  var CLOTHING_SIZE_RE = /^(xs|xl|xxl|2xl|3xl|4xl|5xl|xxxl|xxxxl)$/i;
   var memoMap = /* @__PURE__ */ new Map();
   function clearTokenizeCache() {
     memoMap.clear();
+  }
+  function normalizeTitle(title) {
+    return title.replace(/'/g, "").replace(/\bgore[\s-]tex\b/gi, "goretex");
   }
   function isModelShaped(tok) {
     return /[A-Za-z]/.test(tok) && /\d/.test(tok);
   }
   function isCapacity(tok) {
     return /^\d+(?:\.\d+)?(?:TB|GB|MB|KB|GHz|MHz|MP|mAh|W|V)s?$/i.test(tok) || /^\d+-(?:piece|pieces|pack|packs|pcs|set|sets)$/i.test(tok);
+  }
+  function isStandaloneModel(tok) {
+    return /^\d{3,4}$/.test(tok);
+  }
+  function isVariant(tok) {
+    return SIZE_CODE_RE.test(tok) || SHOE_WIDTH_RE.test(tok) || CLOTHING_SIZE_RE.test(tok);
   }
   function extractRawTokens(title) {
     const tokens = [];
@@ -154,7 +166,7 @@
       const price = hasPrices ? prices[idx] : 0;
       const quartile = price <= q1 ? 0 : price <= q2 ? 1 : price <= q3 ? 2 : 3;
       const seen = /* @__PURE__ */ new Set();
-      for (const tok of extractRawTokens(titles[idx])) {
+      for (const tok of extractRawTokens(normalizeTitle(titles[idx]))) {
         if (isModelShaped(tok) || isCapacity(tok)) {
           vocab.add(tok);
           continue;
@@ -179,17 +191,24 @@
     return vocab;
   }
   function tokenize(title, identityVocab) {
-    const cacheKey2 = title;
+    const normalized = normalizeTitle(title);
+    const cacheKey2 = normalized.toLowerCase();
     const cached = memoMap.get(cacheKey2);
     if (cached) return cached;
-    const lower = title.toLowerCase();
+    const model = [];
+    const variant = [];
     const identity = [];
     const descriptors = [];
     const noise = /* @__PURE__ */ new Set();
     const raw = /* @__PURE__ */ new Set();
-    for (const tok of extractRawTokens(lower)) {
+    for (const tok of extractRawTokens(normalized)) {
       raw.add(tok);
-      if (isModelShaped(tok) || isCapacity(tok) || identityVocab.has(tok)) {
+      if (isVariant(tok)) {
+        variant.push(tok);
+      } else if (isModelShaped(tok) || isCapacity(tok) || isStandaloneModel(tok)) {
+        model.push(tok);
+        identity.push(tok);
+      } else if (identityVocab.has(tok)) {
         identity.push(tok);
       } else if (tok.length < 2 || STOPWORDS.has(tok) || /^\d+$/.test(tok)) {
         noise.add(tok);
@@ -197,7 +216,7 @@
         descriptors.push(tok);
       }
     }
-    const result = { identity, descriptors, noise, raw };
+    const result = { model, variant, identity, descriptors, noise, raw };
     memoMap.set(cacheKey2, result);
     return result;
   }
@@ -327,6 +346,8 @@
         condition: item.condition,
         link: item.link,
         tokens: {
+          model: [],
+          variant: [],
           identity: [],
           descriptors: [],
           noise: /* @__PURE__ */ new Set(),
@@ -404,6 +425,8 @@
     const n = state.items.length;
     const threshold = Math.max(1, Math.ceil(n * CENTROID_MAJORITY));
     return {
+      model: [],
+      variant: [],
       identity: [...state.identityCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
       descriptors: [...state.descriptorCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
       noise: /* @__PURE__ */ new Set(),
@@ -679,6 +702,8 @@
     }
     const threshold = Math.max(1, Math.ceil(n * CENTROID_MAJORITY2));
     return {
+      model: [],
+      variant: [],
       identity: [...identityCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
       descriptors: [...descriptorCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
       noise: /* @__PURE__ */ new Set(),

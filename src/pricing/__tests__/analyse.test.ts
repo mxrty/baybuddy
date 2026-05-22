@@ -40,6 +40,8 @@ function makeListing(
     condition: "Used",
     link: "",
     tokens: {
+      model: identity.filter((t) => /[A-Za-z]/.test(t) && /\d/.test(t)),
+      variant: [],
       identity,
       descriptors: [],
       noise: new Set(),
@@ -201,7 +203,7 @@ describe("outlier removal", () => {
 
 describe("computeRelevance", () => {
   function makeSearchTokens(identity: string[]): WeightedTokens {
-    return { identity, descriptors: [], noise: new Set(), raw: new Set() };
+    return { model: [], variant: [], identity, descriptors: [], noise: new Set(), raw: new Set() };
   }
 
   test("returns 1 when group identity exactly matches search term", () => {

@@ -157,6 +157,8 @@ export function parseRawListings(items: RawListing[]): ParsedListing[] {
       condition: item.condition,
       link: item.link,
       tokens: {
+        model: [],
+        variant: [],
         identity: [],
         descriptors: [],
         noise: new Set(),

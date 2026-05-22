@@ -20,6 +20,8 @@ export interface ParsedListing {
 }
 
 export interface WeightedTokens {
+  model: string[];
+  variant: string[];
   identity: string[];
   descriptors: string[];
   noise: Set<string>;

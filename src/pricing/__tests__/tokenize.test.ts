@@ -5,6 +5,7 @@ import {
   tokenize,
   weightedSimilarity,
   clearTokenizeCache,
+  extractModelKey,
 } from "../tokenize";
 import { cleanTitle } from "../parse";
 import type { RawListing } from "../types";
@@ -246,12 +247,16 @@ describe("weightedSimilarity — identity overlap dominates", () => {
     // Two listings sharing a model number in identity
     const identityVocab = new Set(["dyson"]);
     const sharesIdentity = {
+      model: ["hp04"],
+      variant: [],
       identity: ["dyson", "hp04"],
       descriptors: ["white", "fan"],
       noise: new Set<string>(),
       raw: new Set<string>(),
     };
     const identityRef = {
+      model: ["hp04"],
+      variant: [],
       identity: ["dyson", "hp04"],
       descriptors: ["blue", "compact"],
       noise: new Set<string>(),
@@ -259,12 +264,16 @@ describe("weightedSimilarity — identity overlap dominates", () => {
     };
     // Two listings sharing only descriptors
     const sharesDescriptors = {
+      model: ["nv501"],
+      variant: [],
       identity: ["shark", "nv501"],
       descriptors: ["white", "fan"],
       noise: new Set<string>(),
       raw: new Set<string>(),
     };
     const descriptorRef = {
+      model: ["hp04"],
+      variant: [],
       identity: ["dyson", "hp04"],
       descriptors: ["white", "fan"],
       noise: new Set<string>(),
@@ -289,17 +298,179 @@ describe("weightedSimilarity — identity overlap dominates", () => {
 
   test("empty token sets return 0", () => {
     const a = {
+      model: [],
+      variant: [],
       identity: [],
       descriptors: [],
       noise: new Set<string>(),
       raw: new Set<string>(),
     };
     const b = {
+      model: [],
+      variant: [],
       identity: [],
       descriptors: [],
       noise: new Set<string>(),
       raw: new Set<string>(),
     };
     expect(weightedSimilarity(a, b)).toBe(0);
+  });
+});
+
+// ── Title normalisation ───────────────────────────────────────────────────────
+
+describe("tokenize — title normalisation", () => {
+  test("arc'teryx and arcteryx produce the same raw tokens", () => {
+    const vocab = new Set<string>();
+    const a = tokenize("arc'teryx beta jacket", vocab);
+    clearTokenizeCache();
+    const b = tokenize("arcteryx beta jacket", vocab);
+    expect(a.raw.has("arcteryx")).toBe(true);
+    expect(b.raw.has("arcteryx")).toBe(true);
+    expect(a.raw).toEqual(b.raw);
+  });
+
+  test("men's normalises to mens (no separate s token)", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("men's running shoes", vocab);
+    expect(result.raw.has("mens")).toBe(true);
+    expect(result.raw.has("men")).toBe(false);
+  });
+
+  test("gore-tex normalises to goretex", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("gore-tex waterproof jacket", vocab);
+    expect(result.raw.has("goretex")).toBe(true);
+  });
+
+  test("gore tex (space) normalises to goretex", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("gore tex waterproof jacket", vocab);
+    expect(result.raw.has("goretex")).toBe(true);
+  });
+});
+
+// ── Model token classification ────────────────────────────────────────────────
+
+describe("tokenize — model token classification", () => {
+  test("574 is a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("New Balance 574 trainers", vocab);
+    expect(result.model).toContain("574");
+  });
+
+  test("990 is a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("New Balance 990 sneakers", vocab);
+    expect(result.model).toContain("990");
+  });
+
+  test("9060 is a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("New Balance 9060 shoes", vocab);
+    expect(result.model).toContain("9060");
+  });
+
+  test("bb550emr is a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("New Balance bb550emr trainers", vocab);
+    expect(result.model).toContain("bb550emr");
+  });
+
+  test("128gb capacity is a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("Apple iPhone 16 128GB", vocab);
+    expect(result.model).toContain("128gb");
+  });
+
+  test("model tokens appear in identity for backward compat", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("New Balance 574 trainers", vocab);
+    expect(result.identity).toContain("574");
+  });
+});
+
+// ── Variant token classification ──────────────────────────────────────────────
+
+describe("tokenize — variant token classification", () => {
+  test("uk9 is a variant not a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("New Balance 574 uk9", vocab);
+    expect(result.variant).toContain("uk9");
+    expect(result.model).not.toContain("uk9");
+  });
+
+  test("2e is a variant not a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("New Balance 574 2e wide", vocab);
+    expect(result.variant).toContain("2e");
+    expect(result.model).not.toContain("2e");
+  });
+
+  test("xl is a variant", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("arc'teryx beta jacket xl", vocab);
+    expect(result.variant).toContain("xl");
+    expect(result.model).not.toContain("xl");
+  });
+
+  test("eu43 is a variant not a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("Nike trainers eu43", vocab);
+    expect(result.variant).toContain("eu43");
+    expect(result.model).not.toContain("eu43");
+  });
+
+  test("us10 is a variant not a model token", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("New Balance 574 us10", vocab);
+    expect(result.variant).toContain("us10");
+    expect(result.model).not.toContain("us10");
+  });
+});
+
+// ── Noise classification ──────────────────────────────────────────────────────
+
+describe("tokenize — noise classification", () => {
+  test("standalone s token is noise", () => {
+    const vocab = new Set<string>();
+    const result = tokenize("size s jacket", vocab);
+    expect(result.noise.has("s")).toBe(true);
+  });
+});
+
+// ── extractModelKey ───────────────────────────────────────────────────────────
+
+describe("extractModelKey", () => {
+  test("returns {574} for a 574 title", () => {
+    const key = extractModelKey("New Balance 574 trainers uk9");
+    expect(key.has("574")).toBe(true);
+    expect(key.size).toBe(1);
+  });
+
+  test("returns empty set for a model-less title", () => {
+    const key = extractModelKey("vintage trainers running shoes");
+    expect(key.size).toBe(0);
+  });
+
+  test("returns model tokens for SKU-shaped title", () => {
+    const key = extractModelKey("New Balance bb550emr trainers");
+    expect(key.has("bb550emr")).toBe(true);
+  });
+
+  test("arc'teryx normalisation does not generate model tokens for brand-only title", () => {
+    const key = extractModelKey("arc'teryx beta jacket");
+    expect(key.size).toBe(0);
+  });
+
+  test("capacity tokens are included in the model key", () => {
+    const key = extractModelKey("Apple iPhone 16 128GB Black");
+    expect(key.has("128gb")).toBe(true);
+  });
+
+  test("variant tokens are excluded from the model key", () => {
+    const key = extractModelKey("New Balance 574 uk9 2e");
+    expect(key.has("uk9")).toBe(false);
+    expect(key.has("2e")).toBe(false);
   });
 });

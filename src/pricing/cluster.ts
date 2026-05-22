@@ -109,6 +109,8 @@ function buildCentroidTokens(state: CentroidState): WeightedTokens {
   const n = state.items.length;
   const threshold = Math.max(1, Math.ceil(n * CENTROID_MAJORITY));
   return {
+    model: [],
+    variant: [],
     identity: [...state.identityCounts.entries()]
       .filter(([, c]) => c >= threshold)
       .map(([t]) => t),

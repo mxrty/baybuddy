@@ -199,6 +199,8 @@ function buildGroupCentroid(group: PricingGroup): WeightedTokens {
 
   const threshold = Math.max(1, Math.ceil(n * CENTROID_MAJORITY));
   return {
+    model: [],
+    variant: [],
     identity: [...identityCounts.entries()]
       .filter(([, c]) => c >= threshold)
       .map(([t]) => t),

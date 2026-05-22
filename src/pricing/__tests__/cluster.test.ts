@@ -18,6 +18,8 @@ function makeListing(
     condition: "Used",
     link: "",
     tokens: {
+      model: identity.filter((t) => /[A-Za-z]/.test(t) && /\d/.test(t)),
+      variant: [],
       identity,
       descriptors,
       noise: new Set<string>(),
