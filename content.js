@@ -220,23 +220,6 @@
     memoMap.set(cacheKey2, result);
     return result;
   }
-  function weightedSimilarity(a, b) {
-    const identityScore = jaccardSets(new Set(a.identity), new Set(b.identity));
-    const descriptorScore = jaccardSets(
-      new Set(a.descriptors),
-      new Set(b.descriptors)
-    );
-    return identityScore + descriptorScore * 0.3;
-  }
-  function jaccardSets(a, b) {
-    if (a.size === 0 && b.size === 0) return 0;
-    let intersection = 0;
-    for (const tok of a) {
-      if (b.has(tok)) intersection++;
-    }
-    const union = a.size + b.size - intersection;
-    return union === 0 ? 0 : intersection / union;
-  }
 
   // src/pricing/parse.ts
   var TITLE_NOISE = ["Opens in a new window or tab", "New listing"];
@@ -357,206 +340,6 @@
         isExcluded: excluded
       };
     });
-  }
-
-  // src/pricing/cluster.ts
-  var DEFAULT_THRESHOLD = 0.35;
-  var MERGE_THRESHOLD = 0.6;
-  var MIN_GROUP_TO_SPLIT = 6;
-  var MIN_CHILD_SIZE = 3;
-  var MAX_DEPTH = 2;
-  var MAX_ITER = 5;
-  var CENTROID_MAJORITY = 0.55;
-  var CENTROID_CORE = 0.6;
-  var EMPTY_STATS = {
-    count: 0,
-    min: 0,
-    max: 0,
-    mean: 0,
-    median: 0,
-    p25: 0,
-    p75: 0,
-    stdDev: 0,
-    iqr: 0
-  };
-  var _idCounter = 0;
-  function resetClusterIdCounter() {
-    _idCounter = 0;
-  }
-  function nextId() {
-    return `g${++_idCounter}`;
-  }
-  function createState(items) {
-    const identityCounts = /* @__PURE__ */ new Map();
-    const descriptorCounts = /* @__PURE__ */ new Map();
-    for (const item of items) {
-      for (const tok of item.tokens.identity) {
-        identityCounts.set(tok, (identityCounts.get(tok) ?? 0) + 1);
-      }
-      for (const tok of item.tokens.descriptors) {
-        descriptorCounts.set(tok, (descriptorCounts.get(tok) ?? 0) + 1);
-      }
-    }
-    return { items: [...items], identityCounts, descriptorCounts };
-  }
-  function addToState(state, item) {
-    state.items.push(item);
-    for (const tok of item.tokens.identity) {
-      state.identityCounts.set(tok, (state.identityCounts.get(tok) ?? 0) + 1);
-    }
-    for (const tok of item.tokens.descriptors) {
-      state.descriptorCounts.set(tok, (state.descriptorCounts.get(tok) ?? 0) + 1);
-    }
-  }
-  function removeFromState(state, item) {
-    state.items = state.items.filter((i) => i !== item);
-    for (const tok of item.tokens.identity) {
-      const c = (state.identityCounts.get(tok) ?? 0) - 1;
-      if (c <= 0) state.identityCounts.delete(tok);
-      else state.identityCounts.set(tok, c);
-    }
-    for (const tok of item.tokens.descriptors) {
-      const c = (state.descriptorCounts.get(tok) ?? 0) - 1;
-      if (c <= 0) state.descriptorCounts.delete(tok);
-      else state.descriptorCounts.set(tok, c);
-    }
-  }
-  function buildCentroidTokens(state) {
-    const n = state.items.length;
-    const threshold = Math.max(1, Math.ceil(n * CENTROID_MAJORITY));
-    return {
-      model: [],
-      variant: [],
-      identity: [...state.identityCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
-      descriptors: [...state.descriptorCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
-      noise: /* @__PURE__ */ new Set(),
-      raw: /* @__PURE__ */ new Set()
-    };
-  }
-  function matchScore(item, state) {
-    return weightedSimilarity(item.tokens, buildCentroidTokens(state));
-  }
-  function makeLabel(state) {
-    const n = state.items.length;
-    const threshold = Math.max(1, Math.ceil(n * 0.4));
-    return [...state.identityCounts.entries()].filter(([, c]) => c >= threshold).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t]) => t).join(" ") || "group";
-  }
-  function splitHierarchical(state, depth, parentId) {
-    const id = nextId();
-    const group = {
-      id,
-      label: makeLabel(state),
-      items: [...state.items],
-      children: [],
-      parent: parentId,
-      depth,
-      stats: { ...EMPTY_STATS, count: state.items.length },
-      confidence: "insufficient",
-      relevanceScore: 0
-    };
-    if (state.items.length < MIN_GROUP_TO_SPLIT || depth >= MAX_DEPTH) {
-      return group;
-    }
-    const n = state.items.length;
-    const coreThreshold = Math.ceil(n * CENTROID_CORE);
-    const coreTokens = /* @__PURE__ */ new Set([
-      ...[...state.identityCounts.entries()].filter(([, c]) => c >= coreThreshold).map(([t]) => t),
-      ...[...state.descriptorCounts.entries()].filter(([, c]) => c >= coreThreshold).map(([t]) => t)
-    ]);
-    let bestToken = null;
-    let bestCount = 0;
-    for (const [tok, cnt] of state.identityCounts) {
-      if (!coreTokens.has(tok) && cnt >= MIN_CHILD_SIZE && n - cnt >= MIN_CHILD_SIZE && cnt > bestCount) {
-        bestToken = tok;
-        bestCount = cnt;
-      }
-    }
-    for (const [tok, cnt] of state.descriptorCounts) {
-      if (!coreTokens.has(tok) && cnt >= MIN_CHILD_SIZE && n - cnt >= MIN_CHILD_SIZE && cnt > bestCount) {
-        bestToken = tok;
-        bestCount = cnt;
-      }
-    }
-    if (!bestToken) return group;
-    const withTok = [];
-    const withoutTok = [];
-    for (const item of state.items) {
-      const has = item.tokens.identity.includes(bestToken) || item.tokens.descriptors.includes(bestToken);
-      if (has) withTok.push(item);
-      else withoutTok.push(item);
-    }
-    if (withTok.length < MIN_CHILD_SIZE || withoutTok.length < MIN_CHILD_SIZE) {
-      return group;
-    }
-    group.children = [
-      splitHierarchical(createState(withTok), depth + 1, id),
-      splitHierarchical(createState(withoutTok), depth + 1, id)
-    ];
-    return group;
-  }
-  function clusterListings(listings, options) {
-    const threshold = options?.similarityThreshold ?? DEFAULT_THRESHOLD;
-    const eligible = listings.filter((l) => !l.isJunk && !l.isExcluded).sort((a, b) => a.tokens.identity.length - b.tokens.identity.length);
-    if (eligible.length === 0) return [];
-    const states = [];
-    for (const item of eligible) {
-      let bestIdx = -1;
-      let bestScore = threshold - 1e-3;
-      for (let i = 0; i < states.length; i++) {
-        const score = matchScore(item, states[i]);
-        if (score > bestScore) {
-          bestScore = score;
-          bestIdx = i;
-        }
-      }
-      if (bestIdx >= 0) {
-        addToState(states[bestIdx], item);
-      } else {
-        states.push(createState([item]));
-      }
-    }
-    for (let iter = 0; iter < MAX_ITER; iter++) {
-      let changed = false;
-      for (const item of eligible) {
-        const curIdx = states.findIndex((s) => s.items.includes(item));
-        if (curIdx < 0) continue;
-        let bestIdx = curIdx;
-        let bestScore = matchScore(item, states[curIdx]);
-        for (let i = 0; i < states.length; i++) {
-          if (i === curIdx) continue;
-          const score = matchScore(item, states[i]);
-          if (score > bestScore) {
-            bestScore = score;
-            bestIdx = i;
-          }
-        }
-        if (bestIdx !== curIdx && bestScore >= threshold) {
-          removeFromState(states[curIdx], item);
-          addToState(states[bestIdx], item);
-          changed = true;
-        }
-      }
-      for (let i = states.length - 1; i >= 0; i--) {
-        if (states[i].items.length === 0) states.splice(i, 1);
-      }
-      if (!changed) break;
-    }
-    for (let merged = true; merged; ) {
-      merged = false;
-      outer: for (let i = 0; i < states.length; i++) {
-        const ci = buildCentroidTokens(states[i]);
-        for (let j = i + 1; j < states.length; j++) {
-          const sim = weightedSimilarity(ci, buildCentroidTokens(states[j]));
-          if (sim >= MERGE_THRESHOLD) {
-            for (const item of states[j].items) addToState(states[i], item);
-            states.splice(j, 1);
-            merged = true;
-            break outer;
-          }
-        }
-      }
-    }
-    return states.filter((s) => s.items.length > 0).map((s) => splitHierarchical(s, 0, null));
   }
 
   // src/pricing/analyse.ts
@@ -686,103 +469,71 @@
     const percentile = prices.length > 0 ? below / prices.length : null;
     return { listing, rating, matchedGroup, percentile, showBadge: true };
   }
-  var CROSS_CORPUS_THRESHOLD = 0.15;
-  var CENTROID_MAJORITY2 = 0.5;
-  function buildGroupCentroid(group) {
-    const identityCounts = /* @__PURE__ */ new Map();
-    const descriptorCounts = /* @__PURE__ */ new Map();
-    const n = group.items.length;
-    for (const item of group.items) {
-      for (const tok of item.tokens.identity) {
-        identityCounts.set(tok, (identityCounts.get(tok) ?? 0) + 1);
-      }
-      for (const tok of item.tokens.descriptors) {
-        descriptorCounts.set(tok, (descriptorCounts.get(tok) ?? 0) + 1);
-      }
-    }
-    const threshold = Math.max(1, Math.ceil(n * CENTROID_MAJORITY2));
-    return {
-      model: [],
-      variant: [],
-      identity: [...identityCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
-      descriptors: [...descriptorCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
-      noise: /* @__PURE__ */ new Set(),
-      raw: /* @__PURE__ */ new Set()
-    };
+
+  // src/pricing/match.ts
+  var SIMILARITY_FLOOR = 0.3;
+  var COMP_CAP = 25;
+  function hasIntersection(a, b) {
+    const setB = new Set(b);
+    return a.some((t) => setB.has(t));
   }
-  function rateListingVsSold(listing, groups) {
-    let matchedGroup = null;
-    let bestScore = CROSS_CORPUS_THRESHOLD;
-    function search(gs) {
-      for (const g of gs) {
-        if (g.confidence === "insufficient") {
-          search(g.children);
-          continue;
-        }
-        const score = weightedSimilarity(listing.tokens, buildGroupCentroid(g));
-        if (score > bestScore) {
-          bestScore = score;
-          matchedGroup = g;
-        }
-        search(g.children);
-      }
+  function jaccardArray(a, b) {
+    if (a.length === 0 && b.length === 0) return 0;
+    const setA = new Set(a);
+    const setB = new Set(b);
+    let intersection = 0;
+    for (const t of setA) if (setB.has(t)) intersection++;
+    const union = setA.size + setB.size - intersection;
+    return union === 0 ? 0 : intersection / union;
+  }
+  function similarity(a, b) {
+    const aModel = a.tokens.model;
+    const bModel = b.tokens.model;
+    if (aModel.length > 0 && bModel.length > 0 && !hasIntersection(aModel, bModel)) {
+      return 0;
     }
-    search(groups);
-    if (!matchedGroup) {
-      return {
-        listing,
-        rating: "no-data",
-        matchedGroup: null,
-        percentile: null,
-        showBadge: false
+    const modelScore = jaccardArray(aModel, bModel);
+    const descriptorScore = jaccardArray(a.tokens.descriptors, b.tokens.descriptors);
+    return modelScore + descriptorScore * 0.3;
+  }
+  function findCompsScored(active, sold, opts) {
+    const floor = opts?.floor ?? SIMILARITY_FLOOR;
+    const cap = opts?.cap ?? COMP_CAP;
+    return sold.filter((s) => !s.isJunk && !s.isExcluded).map((s) => ({ listing: s, score: similarity(active, s) })).filter(({ score }) => score >= floor).sort((a, b) => b.score - a.score).slice(0, cap);
+  }
+  var _groupIdCounter = 0;
+  function resetGroupIdCounter() {
+    _groupIdCounter = 0;
+  }
+  function buildModelGroups(sold) {
+    const eligible = sold.filter((s) => !s.isJunk && !s.isExcluded);
+    const byModel = /* @__PURE__ */ new Map();
+    for (const listing of eligible) {
+      const key = [...new Set(listing.tokens.model)].sort().join("+");
+      if (!key) continue;
+      if (!byModel.has(key)) byModel.set(key, []);
+      byModel.get(key).push(listing);
+    }
+    const groups = [];
+    for (const [key, items] of byModel) {
+      const group = {
+        id: `mg${++_groupIdCounter}`,
+        label: key.replace(/\+/g, " "),
+        items,
+        children: [],
+        parent: null,
+        depth: 0,
+        stats: { count: 0, min: 0, max: 0, mean: 0, median: 0, p25: 0, p75: 0, stdDev: 0, iqr: 0 },
+        confidence: "insufficient",
+        relevanceScore: 0
       };
+      computeGroupStats(group);
+      groups.push(group);
     }
-    const { totalPrice } = listing;
-    const { p25, p75 } = matchedGroup.stats;
-    let rating;
-    if (totalPrice < p25) rating = "good";
-    else if (totalPrice > p75) rating = "high";
-    else rating = "fair";
-    const prices = matchedGroup.items.map((l) => l.totalPrice).sort((a, b) => a - b);
-    const below = prices.filter((p) => p < totalPrice).length;
-    const percentile = prices.length > 0 ? below / prices.length : null;
-    return { listing, rating, matchedGroup, percentile, showBadge: true };
+    return groups;
   }
 
   // src/pricing/index.ts
-  function mergeGapFillComps(result, compsPerGroup) {
-    if (compsPerGroup.size === 0) return result;
-    const modifiedGroups = /* @__PURE__ */ new Set();
-    for (const [group, rawComps] of compsPerGroup) {
-      if (rawComps.length === 0) continue;
-      const newParsed = parseRawListings(rawComps).filter(
-        (l) => !l.isJunk && !l.isExcluded
-      );
-      if (newParsed.length === 0) continue;
-      const existingTitles = group.items.map((l) => l.title);
-      const existingPrices = group.items.map((l) => l.totalPrice);
-      const newTitles = newParsed.map((l) => l.title);
-      const newPrices = newParsed.map((l) => l.totalPrice);
-      const vocab = discoverIdentityVocab(
-        [...existingTitles, ...newTitles],
-        [...existingPrices, ...newPrices]
-      );
-      const tokenized = newParsed.map((l) => ({
-        ...l,
-        tokens: tokenize(l.title, vocab)
-      }));
-      group.items.push(...tokenized);
-      modifiedGroups.add(group);
-    }
-    if (modifiedGroups.size === 0) return result;
-    for (const g of modifiedGroups) {
-      computeGroupStats(g);
-    }
-    const newAssessments = result.assessments.map(
-      (a) => rateListingVsSold(a.listing, result.rootGroups)
-    );
-    return { ...result, assessments: newAssessments };
-  }
   function allLeafGroups(groups) {
     const result = [];
     for (const g of groups) {
@@ -794,9 +545,39 @@
     }
     return result;
   }
-  function analysePricing(rawListings, searchTerm, settings) {
+  function matchToModelGroup(active, groups) {
+    if (active.tokens.model.length === 0) return null;
+    const activeModels = new Set(active.tokens.model);
+    for (const g of groups) {
+      const groupModels = new Set(g.label.split(" "));
+      if ([...activeModels].some((m) => groupModels.has(m))) return g;
+    }
+    return null;
+  }
+  function rateVsModelGroup(listing, group) {
+    if (group.confidence === "insufficient") {
+      return {
+        listing,
+        rating: "no-data",
+        matchedGroup: null,
+        percentile: null,
+        showBadge: false
+      };
+    }
+    const { totalPrice } = listing;
+    const { p25, p75 } = group.stats;
+    let rating;
+    if (totalPrice < p25) rating = "good";
+    else if (totalPrice > p75) rating = "high";
+    else rating = "fair";
+    const prices = group.items.map((l) => l.totalPrice).sort((a, b) => a - b);
+    const below = prices.filter((p) => p < totalPrice).length;
+    const percentile = prices.length > 0 ? below / prices.length : null;
+    return { listing, rating, matchedGroup: group, percentile, showBadge: true };
+  }
+  function analysePricing(rawListings, searchTerm, _settings) {
     clearTokenizeCache();
-    resetClusterIdCounter();
+    resetGroupIdCounter();
     const parsed = parseRawListings(rawListings);
     const filteredOut = parsed.filter((l) => l.isJunk || l.isExcluded).length;
     const active = parsed.filter((l) => !l.isJunk && !l.isExcluded);
@@ -836,39 +617,31 @@
       "per-listing breakdown",
       () => withTokens.map((l) => ({
         title: l.title,
+        model: l.tokens.model,
         identity: l.tokens.identity,
         descriptors: l.tokens.descriptors,
         noise: [...l.tokens.noise]
       }))
     );
     dbgGroupEnd();
-    const clusterOptions = settings?.similarityThreshold !== void 0 ? { similarityThreshold: settings.similarityThreshold } : void 0;
-    const rootGroups = clusterListings(withTokens, clusterOptions);
-    dbgGroupStart("cluster", `active corpus \u2014 ${rootGroups.length} root groups`);
+    const rootGroups = buildModelGroups(withTokens);
+    dbgGroupStart("match", `active corpus \u2014 ${rootGroups.length} model groups`);
     dbg(
-      "cluster",
+      "match",
       "group summary",
       () => rootGroups.map((g) => ({
         groupId: g.id,
         label: g.label,
         memberCount: g.items.length,
-        depth: g.depth,
-        childCount: g.children.length
+        confidence: g.confidence
       }))
     );
     dbgGroupEnd();
-    for (const g of rootGroups) {
-      computeGroupStats(g);
-    }
     const searchVocab = discoverIdentityVocab([searchTerm]);
     const searchTokens = tokenize(searchTerm, searchVocab);
-    function assignRelevance(groups) {
-      for (const g of groups) {
-        g.relevanceScore = computeRelevance(g, searchTokens);
-        assignRelevance(g.children);
-      }
+    for (const g of rootGroups) {
+      g.relevanceScore = computeRelevance(g, searchTokens);
     }
-    assignRelevance(rootGroups);
     rootGroups.sort(
       (a, b) => b.relevanceScore - a.relevanceScore || b.stats.count - a.stats.count
     );
@@ -918,9 +691,10 @@
       searchTerm
     };
   }
-  function analysePricingVsSold(activeRaw, soldRaw, searchTerm, settings) {
+  function analysePricingVsSold(activeRaw, soldRaw, searchTerm, _settings) {
     clearTokenizeCache();
-    resetClusterIdCounter();
+    resetGroupIdCounter();
+    dbg("match", "config", () => ({ similarityFloor: SIMILARITY_FLOOR }));
     const parsedSold = parseRawListings(soldRaw);
     const soldFiltered = parsedSold.filter((l) => !l.isJunk && !l.isExcluded);
     const parsedActive = parseRawListings(activeRaw);
@@ -958,51 +732,31 @@
       "per-listing breakdown",
       () => soldWithTokens.map((l) => ({
         title: l.title,
+        model: l.tokens.model,
         identity: l.tokens.identity,
         descriptors: l.tokens.descriptors,
         noise: [...l.tokens.noise]
       }))
     );
     dbgGroupEnd();
-    const clusterOptions = settings?.similarityThreshold !== void 0 ? { similarityThreshold: settings.similarityThreshold } : void 0;
-    const rootGroups = clusterListings(soldWithTokens, clusterOptions);
-    dbgGroupStart("cluster", `sold corpus \u2014 ${rootGroups.length} root groups`);
+    const rootGroups = buildModelGroups(soldWithTokens);
+    dbgGroupStart("match", `sold corpus \u2014 ${rootGroups.length} model groups`);
     dbg(
-      "cluster",
+      "match",
       "group summary",
       () => rootGroups.map((g) => ({
         groupId: g.id,
         label: g.label,
         memberCount: g.items.length,
-        depth: g.depth,
-        childCount: g.children.length
-      }))
-    );
-    dbgGroupEnd();
-    for (const g of rootGroups) computeGroupStats(g);
-    dbgGroupStart("analyse", "sold corpus \u2014 group confidence");
-    dbg(
-      "analyse",
-      "group confidence",
-      () => rootGroups.map((g) => ({
-        groupLabel: g.label,
-        count: g.stats.count,
-        median: g.stats.median,
-        iqr: g.stats.iqr,
-        iqrRatio: g.stats.median > 0 ? g.stats.iqr / g.stats.median : null,
         confidence: g.confidence
       }))
     );
     dbgGroupEnd();
     const searchVocab = discoverIdentityVocab([searchTerm]);
     const searchTokens = tokenize(searchTerm, searchVocab);
-    function assignRelevance(groups) {
-      for (const g of groups) {
-        g.relevanceScore = computeRelevance(g, searchTokens);
-        assignRelevance(g.children);
-      }
+    for (const g of rootGroups) {
+      g.relevanceScore = computeRelevance(g, searchTokens);
     }
-    assignRelevance(rootGroups);
     rootGroups.sort(
       (a, b) => b.relevanceScore - a.relevanceScore || b.stats.count - a.stats.count
     );
@@ -1010,22 +764,57 @@
       ...l,
       tokens: tokenize(l.title, vocab)
     }));
-    const assessments = activeWithTokens.map(
-      (listing) => rateListingVsSold(listing, rootGroups)
-    );
+    const assessments = activeWithTokens.map((listing) => {
+      const activeModelKey = listing.tokens.model.length > 0 ? [...new Set(listing.tokens.model)].sort().join(" ") : void 0;
+      const scoredComps = findCompsScored(listing, soldWithTokens);
+      if (scoredComps.length === 0) {
+        return {
+          listing,
+          rating: "no-data",
+          matchedGroup: null,
+          percentile: null,
+          showBadge: false,
+          activeModelKey,
+          topMatchScore: void 0,
+          sampleComps: []
+        };
+      }
+      const topMatchScore = scoredComps[0].score;
+      const sampleComps = scoredComps.slice(0, 5).map(({ listing: c }) => ({
+        title: c.title,
+        totalPrice: c.totalPrice
+      }));
+      const group = matchToModelGroup(listing, rootGroups);
+      if (!group) {
+        return {
+          listing,
+          rating: "no-data",
+          matchedGroup: null,
+          percentile: null,
+          showBadge: false,
+          activeModelKey,
+          topMatchScore,
+          sampleComps
+        };
+      }
+      return { ...rateVsModelGroup(listing, group), activeModelKey, topMatchScore, sampleComps };
+    });
     dbgGroupStart("analyse", "active corpus (vs sold) \u2014 ratings");
     dbg(
       "analyse",
       "per-listing rating",
       () => assessments.map((a) => ({
         title: a.listing.title,
+        activeModelKey: a.activeModelKey ?? null,
         matchedGroup: a.matchedGroup?.label ?? null,
+        topMatchScore: a.topMatchScore ?? null,
         p25: a.matchedGroup?.stats.p25 ?? null,
         p75: a.matchedGroup?.stats.p75 ?? null,
         median: a.matchedGroup?.stats.median ?? null,
         totalPrice: a.listing.totalPrice,
         rating: a.rating,
-        percentile: a.percentile
+        percentile: a.percentile,
+        sampleComps: a.sampleComps ?? []
       }))
     );
     dbgGroupEnd();
@@ -1110,7 +899,11 @@
       const medianStr = fmtPrice(g.stats.median, currency);
       const p25Str = fmtPrice(g.stats.p25, currency);
       const p75Str = fmtPrice(g.stats.p75, currency);
-      dropdown.innerHTML = `<strong>${g.label}</strong><br>${g.stats.count} comparable sales &middot; median ${medianStr}<br>Typical range: ${p25Str}&ndash;${p75Str}<br><em style="color:#999;">Your total: ${totalStr}${postageNote}</em>`;
+      const comps = assessment.sampleComps ?? [];
+      const compsHtml = comps.length > 0 ? `<hr style="border:none;border-top:1px solid #eee;margin:6px 0;"><div style="color:#777;margin-bottom:2px;font-size:10px;">Recent sales:</div>` + comps.map(
+        (c) => `<div style="display:flex;justify-content:space-between;gap:8px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;" title="${c.title.replace(/"/g, "&quot;")}">${c.title}</span><span style="flex-shrink:0;font-weight:500;">${fmtPrice(c.totalPrice, currency)}</span></div>`
+      ).join("") : "";
+      dropdown.innerHTML = `<strong>${g.label}</strong><br>${g.stats.count} comparable sales &middot; median ${medianStr}<br>Typical range: ${p25Str}&ndash;${p75Str}<br><em style="color:#999;">Your total: ${totalStr}${postageNote}</em>` + compsHtml;
     } else {
       dropdown.style.display = "none";
       summary.style.cursor = "default";
@@ -1301,63 +1094,6 @@
       totalTimeMs: parseFloat((performance.now() - _t0).toFixed(1))
     }));
     return results;
-  }
-  var GAP_FILL_CAP = 10;
-  async function performGapFill(result, origin) {
-    const lowConfidence = result.assessments.filter(
-      (a) => a.matchedGroup !== null && (a.matchedGroup.confidence === "low" || a.matchedGroup.confidence === "insufficient")
-    );
-    if (lowConfidence.length === 0) return result;
-    const variantMap = /* @__PURE__ */ new Map();
-    for (const a of lowConfidence) {
-      const sig = [...a.listing.tokens.identity].sort().join(" ");
-      if (!sig) continue;
-      const existing = variantMap.get(sig);
-      if (existing) {
-        existing.count++;
-      } else {
-        variantMap.set(sig, { group: a.matchedGroup, count: 1 });
-      }
-    }
-    if (variantMap.size === 0) return result;
-    const variants = [...variantMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, GAP_FILL_CAP);
-    dbg("soldFetch", "gapFill variants", () => ({
-      variantCount: variants.length,
-      variants: variants.map(([sig, { group, count }]) => ({
-        variantSignature: sig,
-        activeListingCount: count,
-        groupLabel: group.label,
-        confidenceBefore: group.confidence
-      }))
-    }));
-    const fetchOrigin = origin ?? (typeof window !== "undefined" ? window.location.origin : "");
-    const compsPerGroup = /* @__PURE__ */ new Map();
-    for (let i = 0; i < variants.length; i++) {
-      const [sig, { group }] = variants[i];
-      if (i > 0) await sleep(FETCH_DELAY_MS);
-      let comps;
-      try {
-        comps = await fetchSoldListings(sig, { origin: fetchOrigin });
-      } catch {
-        continue;
-      }
-      if (comps.length === 0) continue;
-      dbg("soldFetch", "gapFill variant fetched", () => ({
-        variantSignature: sig,
-        compsFetched: comps.length
-      }));
-      const existing = compsPerGroup.get(group);
-      if (existing) {
-        existing.push(...comps);
-      } else {
-        compsPerGroup.set(group, [...comps]);
-      }
-      console.log(
-        `[BayBuddy] gapFill: fetched ${comps.length} comps for variant "${sig}"`
-      );
-    }
-    if (compsPerGroup.size === 0) return result;
-    return mergeGapFillComps(result, compsPerGroup);
   }
 
   // src/ui/dashboard.ts
@@ -1990,8 +1726,7 @@
         const searchTerm = url.searchParams.get("_nkw") || "";
         const viewingSold = isViewingSold();
         const pricingSettings = {
-          enabled: true,
-          similarityThreshold: settings.confidenceThreshold / 100
+          enabled: true
         };
         const root = document.documentElement;
         if (viewingSold) {
@@ -2033,18 +1768,6 @@
               clearBadges(root);
               renderBadges(vsoldResult, root);
               renderDashboard(vsoldResult, root);
-              dbg("content", "gapFill start");
-              const _tGap = performance.now();
-              const filledResult = await performGapFill(
-                vsoldResult,
-                window.location.origin
-              );
-              dbg("content", "gapFill done", () => ({ changed: filledResult !== vsoldResult, ms: (performance.now() - _tGap).toFixed(1) }));
-              if (filledResult !== vsoldResult && isStillSamePage(searchTerm, false)) {
-                clearBadges(root);
-                renderBadges(filledResult, root);
-                renderDashboard(filledResult, root);
-              }
             }
           }
         }
@@ -2116,9 +1839,7 @@
         hideCollectionOnly: true,
         localItemsOnly: true,
         priceBadges: true,
-        excludeBroken: true,
         stickyFilters: false,
-        confidenceThreshold: 70,
         debugMode: false
       };
       chrome.storage.sync.get(defaultSettings, function(settings) {
