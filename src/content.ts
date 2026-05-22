@@ -7,7 +7,7 @@ import { analysePricing, analysePricingVsSold } from "./pricing";
 import type { RawListing } from "./pricing";
 import { clearBadges, renderBadges } from "./ui/badge";
 import { renderDashboard } from "./ui/dashboard";
-import { fetchSoldListings } from "./pricing/soldFetch";
+import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
 
 (function () {
   "use strict";
@@ -422,6 +422,20 @@ import { fetchSoldListings } from "./pricing/soldFetch";
             clearBadges(root);
             renderBadges(vsoldResult, root);
             renderDashboard(vsoldResult, root);
+
+            // Phase-2: targeted gap-fill for low/insufficient variants
+            const filledResult = await performGapFill(
+              vsoldResult,
+              window.location.origin,
+            );
+            if (
+              filledResult !== vsoldResult &&
+              isStillSamePage(searchTerm, false)
+            ) {
+              clearBadges(root);
+              renderBadges(filledResult, root);
+              renderDashboard(filledResult, root);
+            }
           }
         }
       }

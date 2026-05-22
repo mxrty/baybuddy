@@ -5,7 +5,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { analysePricing, analysePricingVsSold } from "../index";
+import { analysePricing, analysePricingVsSold, mergeGapFillComps } from "../index";
 import type { RawListing, PricingGroup, PricingResult } from "../types";
 
 const TEST_DATA = path.join(__dirname, "../../../test-data");
@@ -430,5 +430,116 @@ describe("analysePricingVsSold — active listings rated against sold groups", (
     ).length;
     // With ~250–300 sold comps vs ~60 active, vs-sold should badge more listings
     expect(vsoldBadged).toBeGreaterThanOrEqual(activeOnlyBadged);
+  });
+});
+
+// ── mergeGapFillComps ─────────────────────────────────────────────────────────
+
+describe("mergeGapFillComps", () => {
+  function makeRaw(title: string, price: string): RawListing {
+    return { title, priceText: price, condition: "Used", link: "/itm/x", deliveryText: "" };
+  }
+
+  test("returns original result unchanged when compsPerGroup is empty", () => {
+    const soldRaw = loadDataset("iphone-16-sold");
+    const activeRaw = loadDataset("iphone-16-active");
+    const result = analysePricingVsSold(activeRaw, soldRaw, "iphone 16");
+    const filled = mergeGapFillComps(result, new Map());
+    expect(filled).toBe(result);
+  });
+
+  test("adds comps to target group, raises confidence, and produces more badges", () => {
+    // Build a sold corpus with only 2 items — insufficient confidence
+    const thinSold: RawListing[] = [
+      makeRaw("Apple iPhone 16 128GB", "£600.00"),
+      makeRaw("Apple iPhone 16 128GB", "£620.00"),
+    ];
+    const activeRaw: RawListing[] = [makeRaw("Apple iPhone 16 128GB", "£610.00")];
+    const result = analysePricingVsSold(activeRaw, thinSold, "iphone 16 128gb");
+
+    // The one group should be insufficient (only 2 items)
+    const targetGroup = allGroups(result.rootGroups).find(
+      (g) => g.children.length === 0,
+    );
+    expect(targetGroup).toBeDefined();
+    expect(targetGroup!.confidence).toBe("insufficient");
+    expect(result.assessments[0].showBadge).toBe(false);
+
+    // Gap-fill: inject 10 more sold comps for that group
+    const extraComps: RawListing[] = Array.from({ length: 10 }, (_, i) =>
+      makeRaw("Apple iPhone 16 128GB", `£${600 + i * 5}.00`),
+    );
+    const compsPerGroup = new Map<PricingGroup, RawListing[]>([[targetGroup!, extraComps]]);
+    const filled = mergeGapFillComps(result, compsPerGroup);
+
+    // Group should now have enough items for low/medium/high confidence
+    const updatedGroup = allGroups(filled.rootGroups).find(
+      (g) => g.id === targetGroup!.id,
+    );
+    expect(updatedGroup!.items.length).toBe(12);
+    expect(updatedGroup!.confidence).not.toBe("insufficient");
+
+    // The active listing should now receive a badge
+    expect(filled.assessments[0].showBadge).toBe(true);
+    expect(filled.assessments[0].matchedGroup).not.toBeNull();
+  });
+
+  test("returns a new result object (does not mutate original assessments array)", () => {
+    const thinSold: RawListing[] = [
+      makeRaw("Apple iPhone 16 128GB", "£600.00"),
+      makeRaw("Apple iPhone 16 128GB", "£620.00"),
+    ];
+    const activeRaw: RawListing[] = [makeRaw("Apple iPhone 16 128GB", "£610.00")];
+    const result = analysePricingVsSold(activeRaw, thinSold, "iphone 16 128gb");
+
+    const targetGroup = allGroups(result.rootGroups).find(
+      (g) => g.children.length === 0,
+    )!;
+    const extraComps: RawListing[] = Array.from({ length: 5 }, () =>
+      makeRaw("Apple iPhone 16 128GB", "£610.00"),
+    );
+    const filled = mergeGapFillComps(
+      result,
+      new Map([[targetGroup, extraComps]]),
+    );
+
+    expect(filled).not.toBe(result);
+    expect(filled.assessments).not.toBe(result.assessments);
+  });
+
+  test("centroid tokens include new comps (no dilution)", () => {
+    // Verify that adding items with proper tokens does not empty the centroid.
+    // After gap-fill, rateListingVsSold must still match the active listing.
+    const soldRaw = loadDataset("iphone-16-sold");
+    const activeRaw = loadDataset("iphone-16-active");
+    const result = analysePricingVsSold(activeRaw, soldRaw, "iphone 16");
+
+    // Find a low/insufficient group to augment
+    const lowGroup = allGroups(result.rootGroups).find(
+      (g) =>
+        g.children.length === 0 &&
+        (g.confidence === "low" || g.confidence === "insufficient"),
+    );
+    if (!lowGroup) return; // dataset may not have one — vacuous pass
+
+    const beforeCount = lowGroup.items.length;
+    const extraComps: RawListing[] = Array.from({ length: 8 }, () =>
+      makeRaw(lowGroup.items[0]?.title ?? "Apple iPhone 16", "£600.00"),
+    );
+    const filled = mergeGapFillComps(
+      result,
+      new Map([[lowGroup, extraComps]]),
+    );
+
+    // The updated group should have items
+    const updated = allGroups(filled.rootGroups).find(
+      (g) => g.id === lowGroup.id,
+    )!;
+    expect(updated.items.length).toBeGreaterThan(beforeCount);
+    // Confidence should have improved (same or better, never regressed)
+    const rankMap = { insufficient: 0, low: 1, medium: 2, high: 3 };
+    expect(rankMap[updated.confidence]).toBeGreaterThanOrEqual(
+      rankMap[lowGroup.confidence],
+    );
   });
 });

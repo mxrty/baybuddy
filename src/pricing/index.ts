@@ -11,6 +11,7 @@ import type {
   PricingResult,
   PricingSettings,
   PricingGroup,
+  ParsedListing,
 } from "./types";
 
 export type {
@@ -20,6 +21,65 @@ export type {
   PricingResult,
   PricingSettings,
 } from "./types";
+
+/**
+ * Merge targeted gap-fill comps into existing sold groups and re-rate active listings.
+ *
+ * compsPerGroup maps a sold PricingGroup to the raw listings fetched for it.
+ * New comps are parsed, tokenized with a vocab rebuilt from the group's existing items
+ * plus the new comps (preserving correct centroid contributions), then appended to the
+ * group. Stats are recomputed and all active assessments are re-rated.
+ *
+ * Returns the original result unchanged if compsPerGroup is empty.
+ */
+export function mergeGapFillComps(
+  result: PricingResult,
+  compsPerGroup: Map<PricingGroup, RawListing[]>,
+): PricingResult {
+  if (compsPerGroup.size === 0) return result;
+
+  const modifiedGroups = new Set<PricingGroup>();
+
+  for (const [group, rawComps] of compsPerGroup) {
+    if (rawComps.length === 0) continue;
+
+    const newParsed = parseRawListings(rawComps).filter(
+      (l) => !l.isJunk && !l.isExcluded,
+    );
+    if (newParsed.length === 0) continue;
+
+    // Build vocab from the union of existing items + new comps so new items
+    // produce the same identity tokens that the existing centroid uses.
+    const existingTitles = group.items.map((l) => l.title);
+    const existingPrices = group.items.map((l) => l.totalPrice);
+    const newTitles = newParsed.map((l) => l.title);
+    const newPrices = newParsed.map((l) => l.totalPrice);
+    const vocab = discoverIdentityVocab(
+      [...existingTitles, ...newTitles],
+      [...existingPrices, ...newPrices],
+    );
+
+    const tokenized: ParsedListing[] = newParsed.map((l) => ({
+      ...l,
+      tokens: tokenize(l.title, vocab),
+    }));
+
+    group.items.push(...tokenized);
+    modifiedGroups.add(group);
+  }
+
+  if (modifiedGroups.size === 0) return result;
+
+  for (const g of modifiedGroups) {
+    computeGroupStats(g);
+  }
+
+  const newAssessments = result.assessments.map((a) =>
+    rateListingVsSold(a.listing, result.rootGroups),
+  );
+
+  return { ...result, assessments: newAssessments };
+}
 
 function allLeafGroups(groups: PricingGroup[]): PricingGroup[] {
   const result: PricingGroup[] = [];

@@ -666,6 +666,39 @@
   }
 
   // src/pricing/index.ts
+  function mergeGapFillComps(result, compsPerGroup) {
+    if (compsPerGroup.size === 0) return result;
+    const modifiedGroups = /* @__PURE__ */ new Set();
+    for (const [group, rawComps] of compsPerGroup) {
+      if (rawComps.length === 0) continue;
+      const newParsed = parseRawListings(rawComps).filter(
+        (l) => !l.isJunk && !l.isExcluded
+      );
+      if (newParsed.length === 0) continue;
+      const existingTitles = group.items.map((l) => l.title);
+      const existingPrices = group.items.map((l) => l.totalPrice);
+      const newTitles = newParsed.map((l) => l.title);
+      const newPrices = newParsed.map((l) => l.totalPrice);
+      const vocab = discoverIdentityVocab(
+        [...existingTitles, ...newTitles],
+        [...existingPrices, ...newPrices]
+      );
+      const tokenized = newParsed.map((l) => ({
+        ...l,
+        tokens: tokenize(l.title, vocab)
+      }));
+      group.items.push(...tokenized);
+      modifiedGroups.add(group);
+    }
+    if (modifiedGroups.size === 0) return result;
+    for (const g of modifiedGroups) {
+      computeGroupStats(g);
+    }
+    const newAssessments = result.assessments.map(
+      (a) => rateListingVsSold(a.listing, result.rootGroups)
+    );
+    return { ...result, assessments: newAssessments };
+  }
   function allLeafGroups(groups) {
     const result = [];
     for (const g of groups) {
@@ -1065,6 +1098,50 @@
     );
     return results;
   }
+  var GAP_FILL_CAP = 10;
+  async function performGapFill(result, origin) {
+    const lowConfidence = result.assessments.filter(
+      (a) => a.matchedGroup !== null && (a.matchedGroup.confidence === "low" || a.matchedGroup.confidence === "insufficient")
+    );
+    if (lowConfidence.length === 0) return result;
+    const variantMap = /* @__PURE__ */ new Map();
+    for (const a of lowConfidence) {
+      const sig = [...a.listing.tokens.identity].sort().join(" ");
+      if (!sig) continue;
+      const existing = variantMap.get(sig);
+      if (existing) {
+        existing.count++;
+      } else {
+        variantMap.set(sig, { group: a.matchedGroup, count: 1 });
+      }
+    }
+    if (variantMap.size === 0) return result;
+    const variants = [...variantMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, GAP_FILL_CAP);
+    const fetchOrigin = origin ?? (typeof window !== "undefined" ? window.location.origin : "");
+    const compsPerGroup = /* @__PURE__ */ new Map();
+    for (let i = 0; i < variants.length; i++) {
+      const [sig, { group }] = variants[i];
+      if (i > 0) await sleep(FETCH_DELAY_MS);
+      let comps;
+      try {
+        comps = await fetchSoldListings(sig, { origin: fetchOrigin });
+      } catch {
+        continue;
+      }
+      if (comps.length === 0) continue;
+      const existing = compsPerGroup.get(group);
+      if (existing) {
+        existing.push(...comps);
+      } else {
+        compsPerGroup.set(group, [...comps]);
+      }
+      console.log(
+        `[BayBuddy] gapFill: fetched ${comps.length} comps for variant "${sig}"`
+      );
+    }
+    if (compsPerGroup.size === 0) return result;
+    return mergeGapFillComps(result, compsPerGroup);
+  }
 
   // src/content.ts
   (function() {
@@ -1370,6 +1447,15 @@
               clearBadges(root);
               renderBadges(vsoldResult, root);
               renderDashboard(vsoldResult, root);
+              const filledResult = await performGapFill(
+                vsoldResult,
+                window.location.origin
+              );
+              if (filledResult !== vsoldResult && isStillSamePage(searchTerm, false)) {
+                clearBadges(root);
+                renderBadges(filledResult, root);
+                renderDashboard(filledResult, root);
+              }
             }
           }
         }
