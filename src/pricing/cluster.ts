@@ -27,6 +27,11 @@ import type {
 import { weightedSimilarity } from "./tokenize";
 
 const DEFAULT_THRESHOLD = 0.35;
+// Two clusters whose centroids are at least this similar are merged after
+// refinement. Catches duplicate groups for the same product that the greedy
+// pass seeded apart (and, with cosmetic tokens demoted to noise, groups that
+// differ only by a price-irrelevant variant axis → identical centroids).
+const MERGE_THRESHOLD = 0.6;
 const MIN_GROUP_TO_SPLIT = 6;
 const MIN_CHILD_SIZE = 3;
 const MAX_DEPTH = 2;
@@ -286,6 +291,26 @@ export function clusterListings(
     }
 
     if (!changed) break;
+  }
+
+  // Post-cluster merge pass: combine clusters whose centroids are near-identical
+  // (≥ MERGE_THRESHOLD). Repeats until no pair merges. Hierarchical splitting
+  // below then re-runs on the merged result, so genuine sub-variants that share
+  // a centroid still get separated by their discriminating tokens.
+  for (let merged = true; merged; ) {
+    merged = false;
+    outer: for (let i = 0; i < states.length; i++) {
+      const ci = buildCentroidTokens(states[i]);
+      for (let j = i + 1; j < states.length; j++) {
+        const sim = weightedSimilarity(ci, buildCentroidTokens(states[j]));
+        if (sim >= MERGE_THRESHOLD) {
+          for (const item of states[j].items) addToState(states[i], item);
+          states.splice(j, 1);
+          merged = true;
+          break outer;
+        }
+      }
+    }
   }
 
   return states

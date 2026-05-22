@@ -224,6 +224,42 @@ describe("clusterListings — similarity threshold option", () => {
   });
 });
 
+// ── Post-cluster merge pass ───────────────────────────────────────────────────
+
+describe("clusterListings — post-cluster merge pass", () => {
+  test("collapses duplicate groups whose centroids are near-identical", () => {
+    // Two stable clusters the greedy pass seeds apart at a strict threshold:
+    //   A: "apple iphone 128gb"   identity [iphone, 128gb, apple]
+    //   B: "iphone 128gb"         identity [iphone, 128gb]
+    // Centroid similarity = jaccard(2/3) = 0.667 ≥ 0.6 → merge into one group.
+    // Total 4 items (< 6) so no hierarchical re-split.
+    const a = Array.from({ length: 2 }, () =>
+      makeListing("Apple iPhone 128GB", ["iphone", "128gb", "apple"], []),
+    );
+    const b = Array.from({ length: 2 }, () =>
+      makeListing("iPhone 128GB", ["iphone", "128gb"], []),
+    );
+
+    const groups = clusterListings([...a, ...b], { similarityThreshold: 0.7 });
+    expect(groups.length).toBe(1);
+    expect(groups[0].items.length).toBe(4);
+  });
+
+  test("does not merge clusters that differ on a discriminating identity token", () => {
+    // A: iphone 128gb   B: iphone 256gb — share only "iphone".
+    // Centroid similarity = jaccard(1/3) = 0.33 < 0.6 → stay separate.
+    const a = Array.from({ length: 2 }, () =>
+      makeListing("iPhone 128GB", ["iphone", "128gb"], []),
+    );
+    const b = Array.from({ length: 2 }, () =>
+      makeListing("iPhone 256GB", ["iphone", "256gb"], []),
+    );
+
+    const groups = clusterListings([...a, ...b], { similarityThreshold: 0.7 });
+    expect(groups.length).toBe(2);
+  });
+});
+
 // ── Output shape ─────────────────────────────────────────────────────────────
 
 describe("clusterListings — output shape", () => {

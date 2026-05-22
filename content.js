@@ -144,7 +144,10 @@
   }
   function weightedSimilarity(a, b) {
     const identityScore = jaccardSets(new Set(a.identity), new Set(b.identity));
-    const descriptorScore = jaccardSets(new Set(a.descriptors), new Set(b.descriptors));
+    const descriptorScore = jaccardSets(
+      new Set(a.descriptors),
+      new Set(b.descriptors)
+    );
     return identityScore + descriptorScore * 0.3;
   }
   function jaccardSets(a, b) {
@@ -158,10 +161,7 @@
   }
 
   // src/pricing/parse.ts
-  var TITLE_NOISE = [
-    "Opens in a new window or tab",
-    "New listing"
-  ];
+  var TITLE_NOISE = ["Opens in a new window or tab", "New listing"];
   function cleanTitle(title) {
     let out = title;
     for (const phrase of TITLE_NOISE) {
@@ -207,7 +207,8 @@
   var JUNK_PRICE_PATTERN = /^\$20\.00$/;
   function isJunk(item) {
     if (item.title.trim().toLowerCase() === JUNK_TITLE) return true;
-    if (JUNK_PRICE_PATTERN.test(item.priceText.trim()) && item.title.trim().toLowerCase() === JUNK_TITLE) return true;
+    if (JUNK_PRICE_PATTERN.test(item.priceText.trim()) && item.title.trim().toLowerCase() === JUNK_TITLE)
+      return true;
     return false;
   }
   var EXCLUDED_CONDITIONS = [
@@ -236,14 +237,11 @@
     const title = item.title.toLowerCase();
     return DEFECT_TITLE_PHRASES.some((phrase) => title.includes(phrase));
   }
-  var MULTI_VARIANT_TITLE_PHRASES = [
-    "all colours",
-    "all colors",
-    "all sizes"
-  ];
+  var MULTI_VARIANT_TITLE_PHRASES = ["all colours", "all colors", "all sizes"];
   function isMultiVariant(item) {
     const title = item.title.toLowerCase();
-    if (MULTI_VARIANT_TITLE_PHRASES.some((phrase) => title.includes(phrase))) return true;
+    if (MULTI_VARIANT_TITLE_PHRASES.some((phrase) => title.includes(phrase)))
+      return true;
     const cleaned = item.priceText.replace(/[£$€,]/g, "").replace(/AU\s*/i, "").replace(/US\s*/i, "");
     if (cleaned.includes(" to ")) {
       const nums = cleaned.match(/[\d]+(?:\.[\d]+)?/g);
@@ -269,7 +267,12 @@
         totalPrice,
         condition: item.condition,
         link: item.link,
-        tokens: { identity: [], descriptors: [], noise: /* @__PURE__ */ new Set(), raw: /* @__PURE__ */ new Set() },
+        tokens: {
+          identity: [],
+          descriptors: [],
+          noise: /* @__PURE__ */ new Set(),
+          raw: /* @__PURE__ */ new Set()
+        },
         isJunk: junk,
         isExcluded: excluded
       };
@@ -278,6 +281,7 @@
 
   // src/pricing/cluster.ts
   var DEFAULT_THRESHOLD = 0.35;
+  var MERGE_THRESHOLD = 0.6;
   var MIN_GROUP_TO_SPLIT = 6;
   var MIN_CHILD_SIZE = 3;
   var MAX_DEPTH = 2;
@@ -455,6 +459,21 @@
       }
       if (!changed) break;
     }
+    for (let merged = true; merged; ) {
+      merged = false;
+      outer: for (let i = 0; i < states.length; i++) {
+        const ci = buildCentroidTokens(states[i]);
+        for (let j = i + 1; j < states.length; j++) {
+          const sim = weightedSimilarity(ci, buildCentroidTokens(states[j]));
+          if (sim >= MERGE_THRESHOLD) {
+            for (const item of states[j].items) addToState(states[i], item);
+            states.splice(j, 1);
+            merged = true;
+            break outer;
+          }
+        }
+      }
+    }
     return states.filter((s) => s.items.length > 0).map((s) => splitHierarchical(s, 0, null));
   }
 
@@ -462,7 +481,17 @@
   var OUTLIER_MIN_COUNT = 8;
   function computeStats(prices) {
     if (prices.length === 0) {
-      return { count: 0, min: 0, max: 0, mean: 0, median: 0, p25: 0, p75: 0, stdDev: 0, iqr: 0 };
+      return {
+        count: 0,
+        min: 0,
+        max: 0,
+        mean: 0,
+        median: 0,
+        p25: 0,
+        p75: 0,
+        stdDev: 0,
+        iqr: 0
+      };
     }
     const sorted = [...prices].sort((a, b) => a - b);
     const n = sorted.length;
@@ -527,7 +556,9 @@
         centroidIdentity.add(tok.toLowerCase());
       }
     }
-    const searchSet = new Set(searchTermTokens.identity.map((t) => t.toLowerCase()));
+    const searchSet = new Set(
+      searchTermTokens.identity.map((t) => t.toLowerCase())
+    );
     if (centroidIdentity.size === 0 || searchSet.size === 0) return 0;
     let intersection = 0;
     for (const tok of searchSet) {
@@ -554,7 +585,13 @@
       }
     }
     if (!matchedGroup) {
-      return { listing, rating: "no-data", matchedGroup: null, percentile: null, showBadge: false };
+      return {
+        listing,
+        rating: "no-data",
+        matchedGroup: null,
+        percentile: null,
+        showBadge: false
+      };
     }
     const { totalPrice } = listing;
     const { p25, p75 } = matchedGroup.stats;
@@ -589,7 +626,10 @@
     const titles = active.map((l) => l.title);
     const prices = active.map((l) => l.totalPrice);
     const vocab = discoverIdentityVocab(titles, prices);
-    const withTokens = active.map((l) => ({ ...l, tokens: tokenize(l.title, vocab) }));
+    const withTokens = active.map((l) => ({
+      ...l,
+      tokens: tokenize(l.title, vocab)
+    }));
     const clusterOptions = settings?.similarityThreshold !== void 0 ? { similarityThreshold: settings.similarityThreshold } : void 0;
     const rootGroups = clusterListings(withTokens, clusterOptions);
     for (const g of rootGroups) {
@@ -607,7 +647,9 @@
     rootGroups.sort(
       (a, b) => b.relevanceScore - a.relevanceScore || b.stats.count - a.stats.count
     );
-    const assessments = withTokens.map((listing) => rateListing(listing, rootGroups));
+    const assessments = withTokens.map(
+      (listing) => rateListing(listing, rootGroups)
+    );
     const allPrices = active.map((l) => l.totalPrice).filter((p) => p > 0);
     const overallMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
     const overallMax = allPrices.length > 0 ? Math.max(...allPrices) : 0;
@@ -629,7 +671,8 @@
     if (host.includes("ebay.co.uk")) return "\xA3";
     if (host.includes("ebay.com.au")) return "AU $";
     if (host.includes("ebay.ca")) return "C $";
-    if (host.includes("ebay.de") || host.includes("ebay.fr") || host.includes("ebay.it") || host.includes("ebay.es") || host.includes("ebay.ie") || host.includes("ebay.nl") || host.includes("ebay.at")) return "\u20AC";
+    if (host.includes("ebay.de") || host.includes("ebay.fr") || host.includes("ebay.it") || host.includes("ebay.es") || host.includes("ebay.ie") || host.includes("ebay.nl") || host.includes("ebay.at"))
+      return "\u20AC";
     return "$";
   }
 
@@ -638,15 +681,25 @@
     return `${currency}${amount.toFixed(2)}`;
   }
   var BADGE_STYLE = {
-    good: { bg: "rgba(92, 184, 92, 0.1)", color: "#5cb85c", label: "\u{1F7E2} Good deal" },
+    good: {
+      bg: "rgba(92, 184, 92, 0.1)",
+      color: "#5cb85c",
+      label: "\u{1F7E2} Good deal"
+    },
     fair: { bg: "rgba(240, 173, 78, 0.1)", color: "#f0ad4e", label: "\u{1F7E1} Fair" },
-    high: { bg: "rgba(217, 83, 79, 0.1)", color: "#d9534f", label: "\u{1F534} Above market" }
+    high: {
+      bg: "rgba(217, 83, 79, 0.1)",
+      color: "#d9534f",
+      label: "\u{1F534} Above market"
+    }
   };
   function injectBadge(card, assessment, currency) {
     if (!assessment.showBadge || assessment.rating === "no-data") return;
     const style = BADGE_STYLE[assessment.rating];
     const { listing, matchedGroup } = assessment;
-    let container = card.querySelector(".bb-badge-container");
+    let container = card.querySelector(
+      ".bb-badge-container"
+    );
     let needsAppend = false;
     if (!container) {
       container = document.createElement("details");
@@ -691,9 +744,13 @@
     for (const a of result.assessments) {
       if (a.listing.link) byLink.set(a.listing.link, a);
     }
-    const cards = root.querySelectorAll("li.s-card, .s-card, li.s-item, .srp-results .s-item");
+    const cards = root.querySelectorAll(
+      "li.s-card, .s-card, li.s-item, .srp-results .s-item"
+    );
     for (const card of cards) {
-      const linkEl = card.querySelector("a.s-item__link, a.s-card__link");
+      const linkEl = card.querySelector(
+        "a.s-item__link, a.s-card__link"
+      );
       if (!linkEl) continue;
       const href = linkEl.getAttribute("href") || linkEl.href || "";
       const assessment = byLink.get(href);
@@ -857,7 +914,9 @@
         });
       }
       if (deliveryText.trim().length === 0) {
-        const allSpans = card.querySelectorAll("span, .s-item__detail, .s-card__detail");
+        const allSpans = card.querySelectorAll(
+          "span, .s-item__detail, .s-card__detail"
+        );
         allSpans.forEach((el) => {
           const text = el.textContent.trim().toLowerCase();
           if (text.includes("collect") || text.includes("delivery") || text.includes("postage") || text.includes("shipping") || text.includes("p&p")) {
@@ -877,7 +936,8 @@
     }
     function processCard(card) {
       if (card.hasAttribute(HIDDEN_ATTR)) return;
-      if (card.classList && (card.classList.contains("s-item__pl-on-bottom") || card.classList.contains("s-card__pl-on-bottom"))) return;
+      if (card.classList && (card.classList.contains("s-item__pl-on-bottom") || card.classList.contains("s-card__pl-on-bottom")))
+        return;
       if (isCollectionOnly(card)) {
         card.style.display = "none";
         card.setAttribute(HIDDEN_ATTR, "true");
@@ -906,7 +966,9 @@
           "color:#666",
           "font-family:sans-serif"
         ].join(";");
-        const container = document.querySelector(".srp-results, #srp-river-results, .srp-river-main");
+        const container = document.querySelector(
+          ".srp-results, #srp-river-results, .srp-river-main"
+        );
         if (container) container.insertBefore(pill, container.firstChild);
       }
       pill.textContent = text;
@@ -917,7 +979,9 @@
       const realCards = Array.from(cards).filter(
         (card) => !card.classList?.contains("s-item__pl-on-bottom") && !card.classList?.contains("s-card__pl-on-bottom")
       );
-      const hiddenCount = realCards.filter((card) => card.hasAttribute(HIDDEN_ATTR)).length;
+      const hiddenCount = realCards.filter(
+        (card) => card.hasAttribute(HIDDEN_ATTR)
+      ).length;
       renderCollectionHiddenPill(hiddenCount, realCards.length);
     }
     function applyLocalItemsOnly() {
@@ -985,7 +1049,8 @@
       const cards = getListingCards();
       const raw = [];
       cards.forEach((card) => {
-        if (card.classList && (card.classList.contains("s-item__pl-on-bottom") || card.classList.contains("s-card__pl-on-bottom"))) return;
+        if (card.classList && (card.classList.contains("s-item__pl-on-bottom") || card.classList.contains("s-card__pl-on-bottom")))
+          return;
         const titleEl = card.querySelector(".s-item__title, .s-card__title");
         const priceEl = card.querySelector(".s-item__price, .s-card__price");
         const conditionSelectors = [
@@ -997,7 +1062,9 @@
           ".s-card__attribute-row"
         ];
         const conditionText = conditionSelectors.flatMap((sel) => Array.from(card.querySelectorAll(sel))).map((el) => el.textContent || "").join(" ").trim();
-        const linkEl = card.querySelector("a.s-item__link, a.s-card__link");
+        const linkEl = card.querySelector(
+          "a.s-item__link, a.s-card__link"
+        );
         if (!titleEl || !priceEl) return;
         raw.push({
           title: titleEl.textContent || "",
@@ -1116,7 +1183,9 @@
             for (const mutation of mutations) {
               for (const node of Array.from(mutation.addedNodes)) {
                 const el = node.nodeType === 1 ? node : node.parentNode;
-                if (el && el.closest && el.closest("#bb-overview-panel, .bb-badge-container, .bb-price-badge")) {
+                if (el && el.closest && el.closest(
+                  "#bb-overview-panel, .bb-badge-container, .bb-price-badge"
+                )) {
                   continue;
                 }
                 hasNewNodes = true;

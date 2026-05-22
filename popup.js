@@ -29,7 +29,8 @@
         }
       });
       const confVal = document.getElementById("confidenceVal");
-      if (confVal) confVal.textContent = settings.confidenceThreshold + "% Threshold";
+      if (confVal)
+        confVal.textContent = settings.confidenceThreshold + "% Threshold";
       updateStatus(settings);
     });
     const rangeTimers = /* @__PURE__ */ new Map();
