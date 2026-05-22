@@ -433,6 +433,55 @@ describe("analysePricingVsSold — active listings rated against sold groups", (
   });
 });
 
+// ── Debug fields — sampleComps / topMatchScore / activeModelKey ───────────────
+
+describe("analysePricingVsSold — debug fields populated", () => {
+  let result: PricingResult;
+
+  beforeAll(() => {
+    result = analysePricingVsSold(
+      loadDataset("iphone-16-active"),
+      loadDataset("iphone-16-sold"),
+      "iphone 16",
+    );
+  });
+
+  test("badged assessments have sampleComps with title+totalPrice", () => {
+    const badged = result.assessments.filter((a) => a.showBadge);
+    expect(badged.length).toBeGreaterThan(0);
+    for (const a of badged) {
+      expect(a.sampleComps).toBeDefined();
+      expect((a.sampleComps ?? []).length).toBeGreaterThan(0);
+      for (const c of a.sampleComps ?? []) {
+        expect(typeof c.title).toBe("string");
+        expect(c.title.length).toBeGreaterThan(0);
+        expect(typeof c.totalPrice).toBe("number");
+        expect(c.totalPrice).toBeGreaterThan(0);
+      }
+      expect((a.sampleComps ?? []).length).toBeLessThanOrEqual(5);
+    }
+  });
+
+  test("badged assessments have a positive topMatchScore", () => {
+    const badged = result.assessments.filter((a) => a.showBadge);
+    for (const a of badged) {
+      expect(typeof a.topMatchScore).toBe("number");
+      expect(a.topMatchScore as number).toBeGreaterThan(0);
+    }
+  });
+
+  test("assessments with model tokens have an activeModelKey string", () => {
+    const withModel = result.assessments.filter(
+      (a) => a.listing.tokens.model.length > 0,
+    );
+    expect(withModel.length).toBeGreaterThan(0);
+    for (const a of withModel) {
+      expect(typeof a.activeModelKey).toBe("string");
+      expect((a.activeModelKey ?? "").length).toBeGreaterThan(0);
+    }
+  });
+});
+
 // ── Comp quality — model gate regression guard ───────────────────────────────
 
 describe("comp quality — model gate regression guard", () => {

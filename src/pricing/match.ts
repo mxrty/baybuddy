@@ -51,6 +51,18 @@ export function findComps(
   sold: ParsedListing[],
   opts?: FindCompsOptions,
 ): ParsedListing[] {
+  return findCompsScored(active, sold, opts).map(({ listing }) => listing);
+}
+
+/**
+ * Like findComps but returns each comp paired with its similarity score.
+ * Use when the winning score is needed for debug logging.
+ */
+export function findCompsScored(
+  active: ParsedListing,
+  sold: ParsedListing[],
+  opts?: FindCompsOptions,
+): { listing: ParsedListing; score: number }[] {
   const floor = opts?.floor ?? SIMILARITY_FLOOR;
   const cap = opts?.cap ?? COMP_CAP;
 
@@ -59,8 +71,7 @@ export function findComps(
     .map((s) => ({ listing: s, score: similarity(active, s) }))
     .filter(({ score }) => score >= floor)
     .sort((a, b) => b.score - a.score)
-    .slice(0, cap)
-    .map(({ listing }) => listing);
+    .slice(0, cap);
 }
 
 let _groupIdCounter = 0;

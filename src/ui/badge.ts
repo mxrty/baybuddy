@@ -75,11 +75,23 @@ export function createBadgeElement(
     const medianStr = fmtPrice(g.stats.median, currency);
     const p25Str = fmtPrice(g.stats.p25, currency);
     const p75Str = fmtPrice(g.stats.p75, currency);
+    const comps = assessment.sampleComps ?? [];
+    const compsHtml = comps.length > 0
+      ? `<hr style="border:none;border-top:1px solid #eee;margin:6px 0;">` +
+        `<div style="color:#777;margin-bottom:2px;font-size:10px;">Recent sales:</div>` +
+        comps.map((c) =>
+          `<div style="display:flex;justify-content:space-between;gap:8px;">` +
+          `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;" title="${c.title.replace(/"/g, "&quot;")}">${c.title}</span>` +
+          `<span style="flex-shrink:0;font-weight:500;">${fmtPrice(c.totalPrice, currency)}</span>` +
+          `</div>`
+        ).join("")
+      : "";
     dropdown.innerHTML =
       `<strong>${g.label}</strong><br>` +
       `${g.stats.count} comparable sales &middot; median ${medianStr}<br>` +
       `Typical range: ${p25Str}&ndash;${p75Str}<br>` +
-      `<em style="color:#999;">Your total: ${totalStr}${postageNote}</em>`;
+      `<em style="color:#999;">Your total: ${totalStr}${postageNote}</em>` +
+      compsHtml;
   } else {
     dropdown.style.display = "none";
     summary.style.cursor = "default";

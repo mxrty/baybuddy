@@ -5,7 +5,7 @@ import {
 } from "./tokenize";
 import { dbg, dbgGroupStart, dbgGroupEnd } from "../debug";
 import { parseRawListings } from "./parse";
-import { findComps, buildModelGroups, resetGroupIdCounter } from "./match";
+import { findCompsScored, buildModelGroups, resetGroupIdCounter, SIMILARITY_FLOOR } from "./match";
 import {
   computeRelevance,
   computeStats,
@@ -226,6 +226,8 @@ export function analysePricingVsSold(
   clearTokenizeCache();
   resetGroupIdCounter();
 
+  dbg("match", "config", () => ({ similarityFloor: SIMILARITY_FLOOR }));
+
   // Parse both corpora
   const parsedSold = parseRawListings(soldRaw);
   const soldFiltered = parsedSold.filter((l) => !l.isJunk && !l.isExcluded);
@@ -309,16 +311,29 @@ export function analysePricingVsSold(
   }));
 
   const assessments: ListingAssessment[] = activeWithTokens.map((listing) => {
-    const comps = findComps(listing, soldWithTokens);
-    if (comps.length === 0) {
+    const activeModelKey = listing.tokens.model.length > 0
+      ? [...new Set(listing.tokens.model)].sort().join(" ")
+      : undefined;
+
+    const scoredComps = findCompsScored(listing, soldWithTokens);
+    if (scoredComps.length === 0) {
       return {
         listing,
         rating: "no-data" as PriceRating,
         matchedGroup: null,
         percentile: null,
         showBadge: false,
+        activeModelKey,
+        topMatchScore: undefined,
+        sampleComps: [],
       };
     }
+
+    const topMatchScore = scoredComps[0].score;
+    const sampleComps = scoredComps.slice(0, 5).map(({ listing: c }) => ({
+      title: c.title,
+      totalPrice: c.totalPrice,
+    }));
 
     // Find the pre-built model group this listing belongs to (for dashboard linkage)
     const group = matchToModelGroup(listing, rootGroups);
@@ -329,23 +344,29 @@ export function analysePricingVsSold(
         matchedGroup: null,
         percentile: null,
         showBadge: false,
+        activeModelKey,
+        topMatchScore,
+        sampleComps,
       };
     }
 
-    return rateVsModelGroup(listing, group);
+    return { ...rateVsModelGroup(listing, group), activeModelKey, topMatchScore, sampleComps };
   });
 
   dbgGroupStart("analyse", "active corpus (vs sold) — ratings");
   dbg("analyse", "per-listing rating", () =>
     assessments.map((a) => ({
       title: a.listing.title,
+      activeModelKey: a.activeModelKey ?? null,
       matchedGroup: a.matchedGroup?.label ?? null,
+      topMatchScore: a.topMatchScore ?? null,
       p25: a.matchedGroup?.stats.p25 ?? null,
       p75: a.matchedGroup?.stats.p75 ?? null,
       median: a.matchedGroup?.stats.median ?? null,
       totalPrice: a.listing.totalPrice,
       rating: a.rating,
       percentile: a.percentile,
+      sampleComps: a.sampleComps ?? [],
     }))
   );
   dbgGroupEnd();

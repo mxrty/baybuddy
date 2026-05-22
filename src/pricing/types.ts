@@ -60,6 +60,9 @@ export interface ListingAssessment {
   matchedGroup: PricingGroup | null;
   percentile: number | null;
   showBadge: boolean;
+  sampleComps?: { title: string; totalPrice: number }[];
+  topMatchScore?: number;
+  activeModelKey?: string;
 }
 
 export interface PricingResult {
