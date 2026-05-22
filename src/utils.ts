@@ -2,9 +2,7 @@ export interface Settings {
   hideCollectionOnly: boolean;
   localItemsOnly: boolean;
   priceBadges: boolean;
-  excludeBroken: boolean;
   stickyFilters: boolean;
-  confidenceThreshold: number;
   debugMode: boolean;
 }
 

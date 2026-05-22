@@ -108,7 +108,7 @@
         </div>
 
         <!-- Price Badges Group -->
-        <div class="setting-group flex flex-col" id="priceBadgesGroup">
+        <div class="flex flex-col">
           <div
             class="toggle-row flex items-center justify-between gap-3 px-3.5 py-3 bg-bg-secondary border border-white/[0.06] rounded-xl transition-colors duration-150 hover:border-bb-blue/40 hover:bg-bb-blue/[0.08]"
           >
@@ -120,73 +120,12 @@
                 >Show deal ratings on items</span
               >
             </div>
-            <div class="flex items-center gap-2">
-              <label class="toggle-switch">
-                <input type="checkbox" id="priceBadges" />
-                <span class="toggle-slider"></span>
-              </label>
-              <button
-                class="expand-btn bg-transparent border-0 text-text-secondary cursor-pointer p-1 rounded flex items-center justify-center transition-all duration-150 hover:bg-white/10 hover:text-text-primary"
-                id="expandPriceBadges"
-                aria-expanded="false"
-                title="Advanced Settings"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  width="16"
-                  height="16"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  fill="none"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M6 9l6 6 6-6" />
-                </svg>
-              </button>
-            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="priceBadges" />
+              <span class="toggle-slider"></span>
+            </label>
           </div>
 
-          <div
-            class="sub-settings flex-col gap-1 px-3.5 pt-2 pb-3 bg-black/20 rounded-b-xl border border-white/[0.06] border-t-0 -mt-2 mb-0.5"
-            id="priceBadgesSub"
-          >
-            <!-- Exclude Broken -->
-            <div class="flex items-center justify-between gap-3 py-2">
-              <div class="flex flex-col gap-[3px]">
-                <span class="text-[13px] font-semibold"
-                  >Exclude Broken/Parts</span
-                >
-                <span class="text-[11px] text-text-secondary"
-                  >Ignore faulty items in stats</span
-                >
-              </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="excludeBroken" />
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-
-            <!-- Confidence Threshold -->
-            <div class="flex flex-col gap-3 py-2">
-              <div class="flex flex-col gap-[3px]">
-                <span class="text-[13px] font-semibold"
-                  >Grouping Strictness</span
-                >
-                <span class="text-[11px] text-text-secondary" id="confidenceVal"
-                  >70% Threshold</span
-                >
-              </div>
-              <input
-                type="range"
-                id="confidenceThreshold"
-                min="30"
-                max="100"
-                value="70"
-                class="range-slider"
-              />
-            </div>
-          </div>
         </div>
 
         <!-- Sticky Filters -->

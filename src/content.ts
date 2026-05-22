@@ -8,7 +8,7 @@ import { analysePricing, analysePricingVsSold } from "./pricing";
 import type { RawListing } from "./pricing";
 import { clearBadges, renderBadges } from "./ui/badge";
 import { renderDashboard } from "./ui/dashboard";
-import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
+import { fetchSoldListings } from "./pricing/soldFetch";
 
 (function () {
   "use strict";
@@ -383,7 +383,6 @@ import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
       const viewingSold = isViewingSold();
       const pricingSettings = {
         enabled: true,
-        similarityThreshold: settings.confidenceThreshold / 100,
       };
       const root = document.documentElement as HTMLElement;
 
@@ -430,22 +429,6 @@ import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
             renderBadges(vsoldResult, root);
             renderDashboard(vsoldResult, root);
 
-            // Phase-2: targeted gap-fill for low/insufficient variants
-            dbg("content", "gapFill start");
-            const _tGap = performance.now();
-            const filledResult = await performGapFill(
-              vsoldResult,
-              window.location.origin,
-            );
-            dbg("content", "gapFill done", () => ({ changed: filledResult !== vsoldResult, ms: (performance.now() - _tGap).toFixed(1) }));
-            if (
-              filledResult !== vsoldResult &&
-              isStillSamePage(searchTerm, false)
-            ) {
-              clearBadges(root);
-              renderBadges(filledResult, root);
-              renderDashboard(filledResult, root);
-            }
           }
         }
       }
@@ -541,9 +524,7 @@ import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
       hideCollectionOnly: true,
       localItemsOnly: true,
       priceBadges: true,
-      excludeBroken: true,
       stickyFilters: false,
-      confidenceThreshold: 70,
       debugMode: false,
     };
 
