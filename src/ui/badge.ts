@@ -26,49 +26,37 @@ const BADGE_STYLE: Record<
   },
 };
 
-function injectBadge(
-  card: Element,
+export function createBadgeElement(
   assessment: ListingAssessment,
   currency: string,
-): void {
-  if (!assessment.showBadge || assessment.rating === "no-data") return;
+): HTMLElement | null {
+  if (!assessment.showBadge || assessment.rating === "no-data") return null;
 
   const style =
     BADGE_STYLE[assessment.rating as Exclude<PriceRating, "no-data">];
   const { listing, matchedGroup } = assessment;
 
-  let container = card.querySelector(
-    ".bb-badge-container",
-  ) as HTMLElement | null;
-  let needsAppend = false;
+  const container = document.createElement("details") as HTMLElement;
+  container.className = "bb-badge-container";
+  container.style.cssText =
+    "display:inline-block;position:relative;margin-left:8px;";
 
-  if (!container) {
-    container = document.createElement("details");
-    container.className = "bb-badge-container";
-    container.style.cssText =
-      "display:inline-block;position:relative;margin-left:8px;";
+  const summary = document.createElement("summary");
+  summary.className = "bb-price-badge";
+  summary.style.cssText =
+    "display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:500;" +
+    "padding:2px 6px;border-radius:4px;font-family:'Inter',-apple-system,sans-serif;" +
+    "cursor:pointer;list-style:none;";
 
-    const summary = document.createElement("summary");
-    summary.className = "bb-price-badge";
-    summary.style.cssText =
-      "display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:500;" +
-      "padding:2px 6px;border-radius:4px;font-family:'Inter',-apple-system,sans-serif;" +
-      "cursor:pointer;list-style:none;";
+  const dropdown = document.createElement("div");
+  dropdown.className = "bb-badge-dropdown";
+  dropdown.style.cssText =
+    "display:block;margin-top:8px;font-size:11px;color:#575b6e;background:#fff;" +
+    "border:1px solid #ccc;padding:8px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.1);" +
+    "width:max-content;max-width:300px;white-space:normal;";
 
-    const dropdown = document.createElement("div");
-    dropdown.className = "bb-badge-dropdown";
-    dropdown.style.cssText =
-      "display:block;margin-top:8px;font-size:11px;color:#575b6e;background:#fff;" +
-      "border:1px solid #ccc;padding:8px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.1);" +
-      "width:max-content;max-width:300px;white-space:normal;";
-
-    container.appendChild(summary);
-    container.appendChild(dropdown);
-    needsAppend = true;
-  }
-
-  const badge = container.querySelector(".bb-price-badge") as HTMLElement;
-  const dropdown = container.querySelector(".bb-badge-dropdown") as HTMLElement;
+  container.appendChild(summary);
+  container.appendChild(dropdown);
 
   const totalStr = fmtPrice(listing.totalPrice, currency);
   const postageNote =
@@ -76,10 +64,10 @@ function injectBadge(
       ? ` (${fmtPrice(listing.itemPrice, currency)} + ${fmtPrice(listing.postage, currency)} p&p)`
       : " (free postage)";
 
-  badge.style.background = style.bg;
-  badge.style.color = style.color;
-  badge.innerHTML = style.label;
-  badge.title = `Total: ${totalStr}${postageNote}`;
+  summary.style.background = style.bg;
+  summary.style.color = style.color;
+  summary.innerHTML = style.label;
+  summary.title = `Total: ${totalStr}${postageNote}`;
 
   if (matchedGroup) {
     const g = matchedGroup;
@@ -93,13 +81,35 @@ function injectBadge(
       `<em style="color:#999;">Your total: ${totalStr}${postageNote}</em>`;
   } else {
     dropdown.style.display = "none";
-    badge.style.cursor = "default";
+    summary.style.cursor = "default";
   }
 
-  if (needsAppend) {
-    const priceContainer = card.querySelector(".s-item__price, .s-card__price");
-    if (priceContainer) priceContainer.appendChild(container);
+  return container;
+}
+
+function injectBadge(
+  card: Element,
+  assessment: ListingAssessment,
+  currency: string,
+): void {
+  if (!assessment.showBadge || assessment.rating === "no-data") return;
+
+  let container = card.querySelector(
+    ".bb-badge-container",
+  ) as HTMLElement | null;
+
+  if (container) {
+    // Update in place: replace with a fresh element so styles/content stay consistent
+    const fresh = createBadgeElement(assessment, currency);
+    if (fresh) container.replaceWith(fresh);
+    return;
   }
+
+  const fresh = createBadgeElement(assessment, currency);
+  if (!fresh) return;
+
+  const priceContainer = card.querySelector(".s-item__price, .s-card__price");
+  if (priceContainer) priceContainer.appendChild(fresh);
 }
 
 export function clearBadges(root: HTMLElement): void {
