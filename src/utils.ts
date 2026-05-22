@@ -5,6 +5,7 @@ export interface Settings {
   excludeBroken: boolean;
   stickyFilters: boolean;
   confidenceThreshold: number;
+  debugMode: boolean;
 }
 
 export function detectCurrency(host: string): string {

@@ -3,6 +3,7 @@
  */
 
 import { detectCurrency, Settings } from "./utils";
+import { initDebug, dbg } from "./debug";
 import { analysePricing, analysePricingVsSold } from "./pricing";
 import type { RawListing } from "./pricing";
 import { clearBadges, renderBadges } from "./ui/badge";
@@ -394,7 +395,10 @@ import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
         renderDashboard(immediateResult, root);
 
         if (searchTerm) {
+          dbg("content", "soldFetch start", () => ({ searchTerm, skipPage1: true }));
+          const _tSold = performance.now();
           const moreSold = await fetchSoldListings(searchTerm, { skipPage1: true });
+          dbg("content", "soldFetch done", () => ({ searchTerm, count: moreSold.length, ms: (performance.now() - _tSold).toFixed(1) }));
           if (moreSold.length > 0 && isStillSamePage(searchTerm, true)) {
             const allSold = [...rawListings, ...moreSold];
             const fullResult = analysePricing(allSold, searchTerm, pricingSettings);
@@ -411,7 +415,10 @@ import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
         renderDashboard(immediateResult, root);
 
         if (searchTerm) {
+          dbg("content", "soldFetch start", () => ({ searchTerm }));
+          const _tFetch = performance.now();
           const soldListings = await fetchSoldListings(searchTerm);
+          dbg("content", "soldFetch done", () => ({ searchTerm, count: soldListings.length, ms: (performance.now() - _tFetch).toFixed(1) }));
           if (soldListings.length > 0 && isStillSamePage(searchTerm, false)) {
             const vsoldResult = analysePricingVsSold(
               collectRawListings(), // re-collect in case DOM updated during fetch
@@ -424,10 +431,13 @@ import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
             renderDashboard(vsoldResult, root);
 
             // Phase-2: targeted gap-fill for low/insufficient variants
+            dbg("content", "gapFill start");
+            const _tGap = performance.now();
             const filledResult = await performGapFill(
               vsoldResult,
               window.location.origin,
             );
+            dbg("content", "gapFill done", () => ({ changed: filledResult !== vsoldResult, ms: (performance.now() - _tGap).toFixed(1) }));
             if (
               filledResult !== vsoldResult &&
               isStillSamePage(searchTerm, false)
@@ -534,9 +544,11 @@ import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
       excludeBroken: true,
       stickyFilters: false,
       confidenceThreshold: 70,
+      debugMode: false,
     };
 
     chrome.storage.sync.get(defaultSettings, function (settings: Settings) {
+      initDebug(settings.debugMode);
       // Feature 5: Sticky Filters (must run before URL-modifying features)
       if (settings.stickyFilters) {
         applyStickyFilters();

@@ -3,6 +3,7 @@ import {
   discoverIdentityVocab,
   tokenize,
 } from "./tokenize";
+import { dbg, dbgGroupStart, dbgGroupEnd } from "../debug";
 import { parseRawListings } from "./parse";
 import { resetClusterIdCounter, clusterListings } from "./cluster";
 import {
@@ -112,6 +113,27 @@ export function analysePricing(
   const filteredOut = parsed.filter((l) => l.isJunk || l.isExcluded).length;
   const active = parsed.filter((l) => !l.isJunk && !l.isExcluded);
 
+  dbgGroupStart("parse", `active corpus — ${rawListings.length} raw`);
+  dbg("parse", "summary", () => ({
+    rawCount: rawListings.length,
+    junkCount: parsed.filter((l) => l.isJunk).length,
+    junkTitles: parsed.filter((l) => l.isJunk).map((l) => l.title),
+    excludedCount: parsed.filter((l) => l.isExcluded).length,
+    excludedTitles: parsed.filter((l) => l.isExcluded).map((l) => l.title),
+    parsedOkCount: active.length,
+  }));
+  dbg("parse", "per-listing", () =>
+    parsed.map((l) => ({
+      title: l.title,
+      itemPrice: l.itemPrice,
+      postage: l.postage,
+      totalPrice: l.totalPrice,
+      isJunk: l.isJunk,
+      isExcluded: l.isExcluded,
+    }))
+  );
+  dbgGroupEnd();
+
   const titles = active.map((l) => l.title);
   const prices = active.map((l) => l.totalPrice);
   const vocab = discoverIdentityVocab(titles, prices);
@@ -121,12 +143,36 @@ export function analysePricing(
     tokens: tokenize(l.title, vocab),
   }));
 
+  dbgGroupStart("tokenize", `active corpus — vocab size ${vocab.size}`);
+  dbg("tokenize", "identity vocab", () => ({ identityTokens: [...vocab] }));
+  dbg("tokenize", "per-listing breakdown", () =>
+    withTokens.map((l) => ({
+      title: l.title,
+      identity: l.tokens.identity,
+      descriptors: l.tokens.descriptors,
+      noise: [...l.tokens.noise],
+    }))
+  );
+  dbgGroupEnd();
+
   const clusterOptions =
     settings?.similarityThreshold !== undefined
       ? { similarityThreshold: settings.similarityThreshold }
       : undefined;
 
   const rootGroups = clusterListings(withTokens, clusterOptions);
+
+  dbgGroupStart("cluster", `active corpus — ${rootGroups.length} root groups`);
+  dbg("cluster", "group summary", () =>
+    rootGroups.map((g) => ({
+      groupId: g.id,
+      label: g.label,
+      memberCount: g.items.length,
+      depth: g.depth,
+      childCount: g.children.length,
+    }))
+  );
+  dbgGroupEnd();
 
   // Compute stats and confidence for every group in the hierarchy
   for (const g of rootGroups) {
@@ -155,6 +201,31 @@ export function analysePricing(
   const assessments = withTokens.map((listing) =>
     rateListing(listing, rootGroups),
   );
+
+  dbgGroupStart("analyse", "active corpus — ratings");
+  dbg("analyse", "group confidence", () =>
+    rootGroups.map((g) => ({
+      groupLabel: g.label,
+      count: g.stats.count,
+      median: g.stats.median,
+      iqr: g.stats.iqr,
+      iqrRatio: g.stats.median > 0 ? g.stats.iqr / g.stats.median : null,
+      confidence: g.confidence,
+    }))
+  );
+  dbg("analyse", "per-listing rating", () =>
+    assessments.map((a) => ({
+      title: a.listing.title,
+      matchedGroup: a.matchedGroup?.label ?? null,
+      p25: a.matchedGroup?.stats.p25 ?? null,
+      p75: a.matchedGroup?.stats.p75 ?? null,
+      median: a.matchedGroup?.stats.median ?? null,
+      totalPrice: a.listing.totalPrice,
+      rating: a.rating,
+      percentile: a.percentile,
+    }))
+  );
+  dbgGroupEnd();
 
   const allPrices = active.map((l) => l.totalPrice).filter((p) => p > 0);
   const overallMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
@@ -195,6 +266,26 @@ export function analysePricingVsSold(
   const activeFiltered = parsedActive.filter((l) => !l.isJunk && !l.isExcluded);
   const filteredOut = parsedActive.filter((l) => l.isJunk || l.isExcluded).length;
 
+  dbgGroupStart("parse", `sold corpus — ${soldRaw.length} raw`);
+  dbg("parse", "summary", () => ({
+    rawCount: soldRaw.length,
+    junkCount: parsedSold.filter((l) => l.isJunk).length,
+    junkTitles: parsedSold.filter((l) => l.isJunk).map((l) => l.title),
+    excludedCount: parsedSold.filter((l) => l.isExcluded).length,
+    excludedTitles: parsedSold.filter((l) => l.isExcluded).map((l) => l.title),
+    parsedOkCount: soldFiltered.length,
+  }));
+  dbgGroupEnd();
+
+  dbgGroupStart("parse", `active corpus (vs sold) — ${activeRaw.length} raw`);
+  dbg("parse", "summary", () => ({
+    rawCount: activeRaw.length,
+    junkCount: parsedActive.filter((l) => l.isJunk).length,
+    excludedCount: parsedActive.filter((l) => l.isExcluded).length,
+    parsedOkCount: activeFiltered.length,
+  }));
+  dbgGroupEnd();
+
   // Build vocabulary from the sold corpus (the reference)
   const soldTitles = soldFiltered.map((l) => l.title);
   const soldPrices = soldFiltered.map((l) => l.totalPrice);
@@ -206,13 +297,51 @@ export function analysePricingVsSold(
     tokens: tokenize(l.title, vocab),
   }));
 
+  dbgGroupStart("tokenize", `sold corpus — vocab size ${vocab.size}`);
+  dbg("tokenize", "identity vocab", () => ({ identityTokens: [...vocab] }));
+  dbg("tokenize", "per-listing breakdown", () =>
+    soldWithTokens.map((l) => ({
+      title: l.title,
+      identity: l.tokens.identity,
+      descriptors: l.tokens.descriptors,
+      noise: [...l.tokens.noise],
+    }))
+  );
+  dbgGroupEnd();
+
   const clusterOptions =
     settings?.similarityThreshold !== undefined
       ? { similarityThreshold: settings.similarityThreshold }
       : undefined;
 
   const rootGroups = clusterListings(soldWithTokens, clusterOptions);
+
+  dbgGroupStart("cluster", `sold corpus — ${rootGroups.length} root groups`);
+  dbg("cluster", "group summary", () =>
+    rootGroups.map((g) => ({
+      groupId: g.id,
+      label: g.label,
+      memberCount: g.items.length,
+      depth: g.depth,
+      childCount: g.children.length,
+    }))
+  );
+  dbgGroupEnd();
+
   for (const g of rootGroups) computeGroupStats(g);
+
+  dbgGroupStart("analyse", "sold corpus — group confidence");
+  dbg("analyse", "group confidence", () =>
+    rootGroups.map((g) => ({
+      groupLabel: g.label,
+      count: g.stats.count,
+      median: g.stats.median,
+      iqr: g.stats.iqr,
+      iqrRatio: g.stats.median > 0 ? g.stats.iqr / g.stats.median : null,
+      confidence: g.confidence,
+    }))
+  );
+  dbgGroupEnd();
 
   // Relevance against the search term
   const searchVocab = discoverIdentityVocab([searchTerm]);
@@ -238,6 +367,21 @@ export function analysePricingVsSold(
   const assessments = activeWithTokens.map((listing) =>
     rateListingVsSold(listing, rootGroups),
   );
+
+  dbgGroupStart("analyse", "active corpus (vs sold) — ratings");
+  dbg("analyse", "per-listing rating", () =>
+    assessments.map((a) => ({
+      title: a.listing.title,
+      matchedGroup: a.matchedGroup?.label ?? null,
+      p25: a.matchedGroup?.stats.p25 ?? null,
+      p75: a.matchedGroup?.stats.p75 ?? null,
+      median: a.matchedGroup?.stats.median ?? null,
+      totalPrice: a.listing.totalPrice,
+      rating: a.rating,
+      percentile: a.percentile,
+    }))
+  );
+  dbgGroupEnd();
 
   const allPrices = activeFiltered.map((l) => l.totalPrice).filter((p) => p > 0);
   const overallMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;

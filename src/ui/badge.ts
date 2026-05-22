@@ -1,4 +1,5 @@
 import { detectCurrency } from "../utils";
+import { dbg } from "../debug";
 import type {
   PricingResult,
   ListingAssessment,
@@ -92,6 +93,12 @@ function injectBadge(
   assessment: ListingAssessment,
   currency: string,
 ): void {
+  dbg("badge", "inject", () => ({
+    title: assessment.listing.title,
+    rating: assessment.rating,
+    matchedGroupLabel: assessment.matchedGroup?.label ?? null,
+    showBadge: assessment.showBadge,
+  }));
   if (!assessment.showBadge || assessment.rating === "no-data") return;
 
   let container = card.querySelector(

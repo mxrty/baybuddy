@@ -1,5 +1,34 @@
 "use strict";
 (() => {
+  // src/debug.ts
+  var _enabled = false;
+  function initDebug(enabled) {
+    _enabled = enabled;
+  }
+  function dbg(section, label, data) {
+    if (!_enabled) return;
+    const prefix = `[BayBuddy:DEBUG:${section}]`;
+    if (data) {
+      const payload = data();
+      if (typeof payload === "object" && payload !== null) {
+        console.log(prefix, label);
+        console.log(JSON.stringify(payload, null, 2));
+      } else {
+        console.log(prefix, label, payload);
+      }
+    } else {
+      console.log(prefix, label);
+    }
+  }
+  function dbgGroupStart(section, label) {
+    if (!_enabled) return;
+    console.group(`[BayBuddy:DEBUG:${section}] ${label}`);
+  }
+  function dbgGroupEnd() {
+    if (!_enabled) return;
+    console.groupEnd();
+  }
+
   // src/pricing/tokenize.ts
   var COMPOUND_TOKEN_RE = /\b([A-Za-z]+\d[A-Za-z0-9]*(?:[\/\-][A-Za-z0-9]+)*|\d+[A-Za-z][A-Za-z0-9]*(?:[\/\-][A-Za-z0-9]+)*)\b|\b(\d+(?:\.\d+)?(?:TB|GB|MB|KB|GHz|MHz|MP|mAh|W|V)s?)\b|\b(\d+-(?:piece|pieces|pack|packs|pcs|set|sets))\b/gi;
   var STOPWORDS = /* @__PURE__ */ new Set([
@@ -716,6 +745,28 @@
     const parsed = parseRawListings(rawListings);
     const filteredOut = parsed.filter((l) => l.isJunk || l.isExcluded).length;
     const active = parsed.filter((l) => !l.isJunk && !l.isExcluded);
+    dbgGroupStart("parse", `active corpus \u2014 ${rawListings.length} raw`);
+    dbg("parse", "summary", () => ({
+      rawCount: rawListings.length,
+      junkCount: parsed.filter((l) => l.isJunk).length,
+      junkTitles: parsed.filter((l) => l.isJunk).map((l) => l.title),
+      excludedCount: parsed.filter((l) => l.isExcluded).length,
+      excludedTitles: parsed.filter((l) => l.isExcluded).map((l) => l.title),
+      parsedOkCount: active.length
+    }));
+    dbg(
+      "parse",
+      "per-listing",
+      () => parsed.map((l) => ({
+        title: l.title,
+        itemPrice: l.itemPrice,
+        postage: l.postage,
+        totalPrice: l.totalPrice,
+        isJunk: l.isJunk,
+        isExcluded: l.isExcluded
+      }))
+    );
+    dbgGroupEnd();
     const titles = active.map((l) => l.title);
     const prices = active.map((l) => l.totalPrice);
     const vocab = discoverIdentityVocab(titles, prices);
@@ -723,8 +774,34 @@
       ...l,
       tokens: tokenize(l.title, vocab)
     }));
+    dbgGroupStart("tokenize", `active corpus \u2014 vocab size ${vocab.size}`);
+    dbg("tokenize", "identity vocab", () => ({ identityTokens: [...vocab] }));
+    dbg(
+      "tokenize",
+      "per-listing breakdown",
+      () => withTokens.map((l) => ({
+        title: l.title,
+        identity: l.tokens.identity,
+        descriptors: l.tokens.descriptors,
+        noise: [...l.tokens.noise]
+      }))
+    );
+    dbgGroupEnd();
     const clusterOptions = settings?.similarityThreshold !== void 0 ? { similarityThreshold: settings.similarityThreshold } : void 0;
     const rootGroups = clusterListings(withTokens, clusterOptions);
+    dbgGroupStart("cluster", `active corpus \u2014 ${rootGroups.length} root groups`);
+    dbg(
+      "cluster",
+      "group summary",
+      () => rootGroups.map((g) => ({
+        groupId: g.id,
+        label: g.label,
+        memberCount: g.items.length,
+        depth: g.depth,
+        childCount: g.children.length
+      }))
+    );
+    dbgGroupEnd();
     for (const g of rootGroups) {
       computeGroupStats(g);
     }
@@ -743,6 +820,34 @@
     const assessments = withTokens.map(
       (listing) => rateListing(listing, rootGroups)
     );
+    dbgGroupStart("analyse", "active corpus \u2014 ratings");
+    dbg(
+      "analyse",
+      "group confidence",
+      () => rootGroups.map((g) => ({
+        groupLabel: g.label,
+        count: g.stats.count,
+        median: g.stats.median,
+        iqr: g.stats.iqr,
+        iqrRatio: g.stats.median > 0 ? g.stats.iqr / g.stats.median : null,
+        confidence: g.confidence
+      }))
+    );
+    dbg(
+      "analyse",
+      "per-listing rating",
+      () => assessments.map((a) => ({
+        title: a.listing.title,
+        matchedGroup: a.matchedGroup?.label ?? null,
+        p25: a.matchedGroup?.stats.p25 ?? null,
+        p75: a.matchedGroup?.stats.p75 ?? null,
+        median: a.matchedGroup?.stats.median ?? null,
+        totalPrice: a.listing.totalPrice,
+        rating: a.rating,
+        percentile: a.percentile
+      }))
+    );
+    dbgGroupEnd();
     const allPrices = active.map((l) => l.totalPrice).filter((p) => p > 0);
     const overallMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
     const overallMax = allPrices.length > 0 ? Math.max(...allPrices) : 0;
@@ -766,6 +871,24 @@
     const parsedActive = parseRawListings(activeRaw);
     const activeFiltered = parsedActive.filter((l) => !l.isJunk && !l.isExcluded);
     const filteredOut = parsedActive.filter((l) => l.isJunk || l.isExcluded).length;
+    dbgGroupStart("parse", `sold corpus \u2014 ${soldRaw.length} raw`);
+    dbg("parse", "summary", () => ({
+      rawCount: soldRaw.length,
+      junkCount: parsedSold.filter((l) => l.isJunk).length,
+      junkTitles: parsedSold.filter((l) => l.isJunk).map((l) => l.title),
+      excludedCount: parsedSold.filter((l) => l.isExcluded).length,
+      excludedTitles: parsedSold.filter((l) => l.isExcluded).map((l) => l.title),
+      parsedOkCount: soldFiltered.length
+    }));
+    dbgGroupEnd();
+    dbgGroupStart("parse", `active corpus (vs sold) \u2014 ${activeRaw.length} raw`);
+    dbg("parse", "summary", () => ({
+      rawCount: activeRaw.length,
+      junkCount: parsedActive.filter((l) => l.isJunk).length,
+      excludedCount: parsedActive.filter((l) => l.isExcluded).length,
+      parsedOkCount: activeFiltered.length
+    }));
+    dbgGroupEnd();
     const soldTitles = soldFiltered.map((l) => l.title);
     const soldPrices = soldFiltered.map((l) => l.totalPrice);
     const vocab = discoverIdentityVocab(soldTitles, soldPrices);
@@ -773,9 +896,49 @@
       ...l,
       tokens: tokenize(l.title, vocab)
     }));
+    dbgGroupStart("tokenize", `sold corpus \u2014 vocab size ${vocab.size}`);
+    dbg("tokenize", "identity vocab", () => ({ identityTokens: [...vocab] }));
+    dbg(
+      "tokenize",
+      "per-listing breakdown",
+      () => soldWithTokens.map((l) => ({
+        title: l.title,
+        identity: l.tokens.identity,
+        descriptors: l.tokens.descriptors,
+        noise: [...l.tokens.noise]
+      }))
+    );
+    dbgGroupEnd();
     const clusterOptions = settings?.similarityThreshold !== void 0 ? { similarityThreshold: settings.similarityThreshold } : void 0;
     const rootGroups = clusterListings(soldWithTokens, clusterOptions);
+    dbgGroupStart("cluster", `sold corpus \u2014 ${rootGroups.length} root groups`);
+    dbg(
+      "cluster",
+      "group summary",
+      () => rootGroups.map((g) => ({
+        groupId: g.id,
+        label: g.label,
+        memberCount: g.items.length,
+        depth: g.depth,
+        childCount: g.children.length
+      }))
+    );
+    dbgGroupEnd();
     for (const g of rootGroups) computeGroupStats(g);
+    dbgGroupStart("analyse", "sold corpus \u2014 group confidence");
+    dbg(
+      "analyse",
+      "group confidence",
+      () => rootGroups.map((g) => ({
+        groupLabel: g.label,
+        count: g.stats.count,
+        median: g.stats.median,
+        iqr: g.stats.iqr,
+        iqrRatio: g.stats.median > 0 ? g.stats.iqr / g.stats.median : null,
+        confidence: g.confidence
+      }))
+    );
+    dbgGroupEnd();
     const searchVocab = discoverIdentityVocab([searchTerm]);
     const searchTokens = tokenize(searchTerm, searchVocab);
     function assignRelevance(groups) {
@@ -795,6 +958,22 @@
     const assessments = activeWithTokens.map(
       (listing) => rateListingVsSold(listing, rootGroups)
     );
+    dbgGroupStart("analyse", "active corpus (vs sold) \u2014 ratings");
+    dbg(
+      "analyse",
+      "per-listing rating",
+      () => assessments.map((a) => ({
+        title: a.listing.title,
+        matchedGroup: a.matchedGroup?.label ?? null,
+        p25: a.matchedGroup?.stats.p25 ?? null,
+        p75: a.matchedGroup?.stats.p75 ?? null,
+        median: a.matchedGroup?.stats.median ?? null,
+        totalPrice: a.listing.totalPrice,
+        rating: a.rating,
+        percentile: a.percentile
+      }))
+    );
+    dbgGroupEnd();
     const allPrices = activeFiltered.map((l) => l.totalPrice).filter((p) => p > 0);
     const overallMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
     const overallMax = allPrices.length > 0 ? Math.max(...allPrices) : 0;
@@ -884,6 +1063,12 @@
     return container;
   }
   function injectBadge(card, assessment, currency) {
+    dbg("badge", "inject", () => ({
+      title: assessment.listing.title,
+      rating: assessment.rating,
+      matchedGroupLabel: assessment.matchedGroup?.label ?? null,
+      showBadge: assessment.showBadge
+    }));
     if (!assessment.showBadge || assessment.rating === "no-data") return;
     let container = card.querySelector(
       ".bb-badge-container"
@@ -1016,13 +1201,23 @@
   }
   async function fetchSoldListings(searchTerm, opts = {}) {
     const cached = await getCached(searchTerm);
-    if (cached) return cached;
+    if (cached) {
+      dbg("soldFetch", "cache hit", () => ({
+        searchTerm,
+        cacheHit: true,
+        listingCount: cached.length
+      }));
+      return cached;
+    }
     const origin = opts.origin ?? window.location.origin;
     const startPage = opts.skipPage1 ? 2 : 1;
     const results = [];
+    const perPageTiming = [];
+    const _t0 = performance.now();
     for (let page = startPage; page <= PAGES_TO_FETCH; page++) {
       if (page > startPage) await sleep(FETCH_DELAY_MS);
       const url = buildSoldUrl(origin, searchTerm, page);
+      const _pt0 = performance.now();
       try {
         const response = await fetch(url, {
           credentials: "same-origin",
@@ -1034,6 +1229,7 @@
       } catch {
         break;
       }
+      perPageTiming.push(parseFloat((performance.now() - _pt0).toFixed(1)));
     }
     if (results.length > 0) {
       await setCached(searchTerm, results);
@@ -1041,6 +1237,14 @@
     console.log(
       `[BayBuddy] soldFetch: fetched ${results.length} sold listings for "${searchTerm}"`
     );
+    dbg("soldFetch", "fetch complete", () => ({
+      searchTerm,
+      cacheHit: false,
+      pagesRequested: perPageTiming.length,
+      perPageTiming,
+      totalListingsFetched: results.length,
+      totalTimeMs: parseFloat((performance.now() - _t0).toFixed(1))
+    }));
     return results;
   }
   var GAP_FILL_CAP = 10;
@@ -1062,6 +1266,15 @@
     }
     if (variantMap.size === 0) return result;
     const variants = [...variantMap.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, GAP_FILL_CAP);
+    dbg("soldFetch", "gapFill variants", () => ({
+      variantCount: variants.length,
+      variants: variants.map(([sig, { group, count }]) => ({
+        variantSignature: sig,
+        activeListingCount: count,
+        groupLabel: group.label,
+        confidenceBefore: group.confidence
+      }))
+    }));
     const fetchOrigin = origin ?? (typeof window !== "undefined" ? window.location.origin : "");
     const compsPerGroup = /* @__PURE__ */ new Map();
     for (let i = 0; i < variants.length; i++) {
@@ -1074,6 +1287,10 @@
         continue;
       }
       if (comps.length === 0) continue;
+      dbg("soldFetch", "gapFill variant fetched", () => ({
+        variantSignature: sig,
+        compsFetched: comps.length
+      }));
       const existing = compsPerGroup.get(group);
       if (existing) {
         existing.push(...comps);
@@ -1400,6 +1617,26 @@
     _lastResult = result;
     _currentCurrency = currency;
     const { rootGroups, summary, assessments } = result;
+    dbg("dashboard", "render", () => {
+      const topDeals = assessments.filter(
+        (a) => a.showBadge && a.rating === "good" && a.matchedGroup !== null && a.matchedGroup.stats.median > 0
+      ).map((a) => ({
+        title: a.listing.title,
+        price: a.listing.totalPrice,
+        median: a.matchedGroup.stats.median,
+        discountPct: parseFloat(
+          ((a.matchedGroup.stats.median - a.listing.totalPrice) / a.matchedGroup.stats.median * 100).toFixed(1)
+        )
+      })).sort((x, y) => y.discountPct - x.discountPct).slice(0, 5);
+      return {
+        totalGroups: rootGroups.length,
+        totalListingsAnalysed: summary.totalListingsAnalysed,
+        filteredOut: summary.filteredOut,
+        sortState: _sort,
+        hideInsufficient: _hideInsufficient,
+        topDeals
+      };
+    });
     let panel = document.getElementById("bb-overview-panel");
     let needsAppend = false;
     if (!panel) {
@@ -1708,7 +1945,10 @@
           renderBadges(immediateResult, root);
           renderDashboard(immediateResult, root);
           if (searchTerm) {
+            dbg("content", "soldFetch start", () => ({ searchTerm, skipPage1: true }));
+            const _tSold = performance.now();
             const moreSold = await fetchSoldListings(searchTerm, { skipPage1: true });
+            dbg("content", "soldFetch done", () => ({ searchTerm, count: moreSold.length, ms: (performance.now() - _tSold).toFixed(1) }));
             if (moreSold.length > 0 && isStillSamePage(searchTerm, true)) {
               const allSold = [...rawListings, ...moreSold];
               const fullResult = analysePricing(allSold, searchTerm, pricingSettings);
@@ -1723,7 +1963,10 @@
           renderBadges(immediateResult, root);
           renderDashboard(immediateResult, root);
           if (searchTerm) {
+            dbg("content", "soldFetch start", () => ({ searchTerm }));
+            const _tFetch = performance.now();
             const soldListings = await fetchSoldListings(searchTerm);
+            dbg("content", "soldFetch done", () => ({ searchTerm, count: soldListings.length, ms: (performance.now() - _tFetch).toFixed(1) }));
             if (soldListings.length > 0 && isStillSamePage(searchTerm, false)) {
               const vsoldResult = analysePricingVsSold(
                 collectRawListings(),
@@ -1735,10 +1978,13 @@
               clearBadges(root);
               renderBadges(vsoldResult, root);
               renderDashboard(vsoldResult, root);
+              dbg("content", "gapFill start");
+              const _tGap = performance.now();
               const filledResult = await performGapFill(
                 vsoldResult,
                 window.location.origin
               );
+              dbg("content", "gapFill done", () => ({ changed: filledResult !== vsoldResult, ms: (performance.now() - _tGap).toFixed(1) }));
               if (filledResult !== vsoldResult && isStillSamePage(searchTerm, false)) {
                 clearBadges(root);
                 renderBadges(filledResult, root);
@@ -1817,9 +2063,11 @@
         priceBadges: true,
         excludeBroken: true,
         stickyFilters: false,
-        confidenceThreshold: 70
+        confidenceThreshold: 70,
+        debugMode: false
       };
       chrome.storage.sync.get(defaultSettings, function(settings) {
+        initDebug(settings.debugMode);
         if (settings.stickyFilters) {
           applyStickyFilters();
         }

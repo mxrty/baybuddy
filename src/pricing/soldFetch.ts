@@ -1,5 +1,6 @@
 import type { RawListing, PricingResult, PricingGroup } from "./types";
 import { mergeGapFillComps } from "./index";
+import { dbg } from "../debug";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_DELAY_MS = 400;
@@ -144,16 +145,26 @@ export async function fetchSoldListings(
   opts: FetchSoldOptions = {},
 ): Promise<RawListing[]> {
   const cached = await getCached(searchTerm);
-  if (cached) return cached;
+  if (cached) {
+    dbg("soldFetch", "cache hit", () => ({
+      searchTerm,
+      cacheHit: true,
+      listingCount: cached.length,
+    }));
+    return cached;
+  }
 
   const origin = opts.origin ?? window.location.origin;
   const startPage = opts.skipPage1 ? 2 : 1;
   const results: RawListing[] = [];
+  const perPageTiming: number[] = [];
+  const _t0 = performance.now();
 
   for (let page = startPage; page <= PAGES_TO_FETCH; page++) {
     if (page > startPage) await sleep(FETCH_DELAY_MS);
 
     const url = buildSoldUrl(origin, searchTerm, page);
+    const _pt0 = performance.now();
     try {
       const response = await fetch(url, {
         credentials: "same-origin",
@@ -165,6 +176,7 @@ export async function fetchSoldListings(
     } catch {
       break;
     }
+    perPageTiming.push(parseFloat((performance.now() - _pt0).toFixed(1)));
   }
 
   if (results.length > 0) {
@@ -174,6 +186,14 @@ export async function fetchSoldListings(
   console.log(
     `[BayBuddy] soldFetch: fetched ${results.length} sold listings for "${searchTerm}"`,
   );
+  dbg("soldFetch", "fetch complete", () => ({
+    searchTerm,
+    cacheHit: false,
+    pagesRequested: perPageTiming.length,
+    perPageTiming,
+    totalListingsFetched: results.length,
+    totalTimeMs: parseFloat((performance.now() - _t0).toFixed(1)),
+  }));
 
   return results;
 }
@@ -221,6 +241,16 @@ export async function performGapFill(
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, GAP_FILL_CAP);
 
+  dbg("soldFetch", "gapFill variants", () => ({
+    variantCount: variants.length,
+    variants: variants.map(([sig, { group, count }]) => ({
+      variantSignature: sig,
+      activeListingCount: count,
+      groupLabel: group.label,
+      confidenceBefore: group.confidence,
+    })),
+  }));
+
   const fetchOrigin =
     origin ??
     (typeof window !== "undefined" ? window.location.origin : "");
@@ -239,6 +269,11 @@ export async function performGapFill(
     }
 
     if (comps.length === 0) continue;
+
+    dbg("soldFetch", "gapFill variant fetched", () => ({
+      variantSignature: sig,
+      compsFetched: comps.length,
+    }));
 
     const existing = compsPerGroup.get(group);
     if (existing) {

@@ -10,6 +10,35 @@
     return "$";
   }
 
+  // src/debug.ts
+  var _enabled = false;
+  function initDebug(enabled) {
+    _enabled = enabled;
+  }
+  function dbg(section, label, data) {
+    if (!_enabled) return;
+    const prefix = `[BayBuddy:DEBUG:${section}]`;
+    if (data) {
+      const payload = data();
+      if (typeof payload === "object" && payload !== null) {
+        console.log(prefix, label);
+        console.log(JSON.stringify(payload, null, 2));
+      } else {
+        console.log(prefix, label, payload);
+      }
+    } else {
+      console.log(prefix, label);
+    }
+  }
+  function dbgGroupStart(section, label) {
+    if (!_enabled) return;
+    console.group(`[BayBuddy:DEBUG:${section}] ${label}`);
+  }
+  function dbgGroupEnd() {
+    if (!_enabled) return;
+    console.groupEnd();
+  }
+
   // src/pricing/parse.ts
   var TITLE_NOISE = ["Opens in a new window or tab", "New listing"];
   function cleanTitle(title) {
@@ -658,6 +687,24 @@
     const parsedActive = parseRawListings(activeRaw);
     const activeFiltered = parsedActive.filter((l) => !l.isJunk && !l.isExcluded);
     const filteredOut = parsedActive.filter((l) => l.isJunk || l.isExcluded).length;
+    dbgGroupStart("parse", `sold corpus \u2014 ${soldRaw.length} raw`);
+    dbg("parse", "summary", () => ({
+      rawCount: soldRaw.length,
+      junkCount: parsedSold.filter((l) => l.isJunk).length,
+      junkTitles: parsedSold.filter((l) => l.isJunk).map((l) => l.title),
+      excludedCount: parsedSold.filter((l) => l.isExcluded).length,
+      excludedTitles: parsedSold.filter((l) => l.isExcluded).map((l) => l.title),
+      parsedOkCount: soldFiltered.length
+    }));
+    dbgGroupEnd();
+    dbgGroupStart("parse", `active corpus (vs sold) \u2014 ${activeRaw.length} raw`);
+    dbg("parse", "summary", () => ({
+      rawCount: activeRaw.length,
+      junkCount: parsedActive.filter((l) => l.isJunk).length,
+      excludedCount: parsedActive.filter((l) => l.isExcluded).length,
+      parsedOkCount: activeFiltered.length
+    }));
+    dbgGroupEnd();
     const soldTitles = soldFiltered.map((l) => l.title);
     const soldPrices = soldFiltered.map((l) => l.totalPrice);
     const vocab = discoverIdentityVocab(soldTitles, soldPrices);
@@ -665,9 +712,49 @@
       ...l,
       tokens: tokenize(l.title, vocab)
     }));
+    dbgGroupStart("tokenize", `sold corpus \u2014 vocab size ${vocab.size}`);
+    dbg("tokenize", "identity vocab", () => ({ identityTokens: [...vocab] }));
+    dbg(
+      "tokenize",
+      "per-listing breakdown",
+      () => soldWithTokens.map((l) => ({
+        title: l.title,
+        identity: l.tokens.identity,
+        descriptors: l.tokens.descriptors,
+        noise: [...l.tokens.noise]
+      }))
+    );
+    dbgGroupEnd();
     const clusterOptions = settings?.similarityThreshold !== void 0 ? { similarityThreshold: settings.similarityThreshold } : void 0;
     const rootGroups = clusterListings(soldWithTokens, clusterOptions);
+    dbgGroupStart("cluster", `sold corpus \u2014 ${rootGroups.length} root groups`);
+    dbg(
+      "cluster",
+      "group summary",
+      () => rootGroups.map((g) => ({
+        groupId: g.id,
+        label: g.label,
+        memberCount: g.items.length,
+        depth: g.depth,
+        childCount: g.children.length
+      }))
+    );
+    dbgGroupEnd();
     for (const g of rootGroups) computeGroupStats(g);
+    dbgGroupStart("analyse", "sold corpus \u2014 group confidence");
+    dbg(
+      "analyse",
+      "group confidence",
+      () => rootGroups.map((g) => ({
+        groupLabel: g.label,
+        count: g.stats.count,
+        median: g.stats.median,
+        iqr: g.stats.iqr,
+        iqrRatio: g.stats.median > 0 ? g.stats.iqr / g.stats.median : null,
+        confidence: g.confidence
+      }))
+    );
+    dbgGroupEnd();
     const searchVocab = discoverIdentityVocab([searchTerm]);
     const searchTokens = tokenize(searchTerm, searchVocab);
     function assignRelevance(groups) {
@@ -687,6 +774,22 @@
     const assessments = activeWithTokens.map(
       (listing) => rateListingVsSold(listing, rootGroups)
     );
+    dbgGroupStart("analyse", "active corpus (vs sold) \u2014 ratings");
+    dbg(
+      "analyse",
+      "per-listing rating",
+      () => assessments.map((a) => ({
+        title: a.listing.title,
+        matchedGroup: a.matchedGroup?.label ?? null,
+        p25: a.matchedGroup?.stats.p25 ?? null,
+        p75: a.matchedGroup?.stats.p75 ?? null,
+        median: a.matchedGroup?.stats.median ?? null,
+        totalPrice: a.listing.totalPrice,
+        rating: a.rating,
+        percentile: a.percentile
+      }))
+    );
+    dbgGroupEnd();
     const allPrices = activeFiltered.map((l) => l.totalPrice).filter((p) => p > 0);
     const overallMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
     const overallMax = allPrices.length > 0 ? Math.max(...allPrices) : 0;
@@ -798,13 +901,23 @@
   }
   async function fetchSoldListings(searchTerm, opts = {}) {
     const cached = await getCached(searchTerm);
-    if (cached) return cached;
+    if (cached) {
+      dbg("soldFetch", "cache hit", () => ({
+        searchTerm,
+        cacheHit: true,
+        listingCount: cached.length
+      }));
+      return cached;
+    }
     const origin = opts.origin ?? window.location.origin;
     const startPage = opts.skipPage1 ? 2 : 1;
     const results = [];
+    const perPageTiming = [];
+    const _t0 = performance.now();
     for (let page = startPage; page <= PAGES_TO_FETCH; page++) {
       if (page > startPage) await sleep(FETCH_DELAY_MS);
       const url = buildSoldUrl(origin, searchTerm, page);
+      const _pt0 = performance.now();
       try {
         const response = await fetch(url, {
           credentials: "same-origin",
@@ -816,6 +929,7 @@
       } catch {
         break;
       }
+      perPageTiming.push(parseFloat((performance.now() - _pt0).toFixed(1)));
     }
     if (results.length > 0) {
       await setCached(searchTerm, results);
@@ -823,6 +937,14 @@
     console.log(
       `[BayBuddy] soldFetch: fetched ${results.length} sold listings for "${searchTerm}"`
     );
+    dbg("soldFetch", "fetch complete", () => ({
+      searchTerm,
+      cacheHit: false,
+      pagesRequested: perPageTiming.length,
+      perPageTiming,
+      totalListingsFetched: results.length,
+      totalTimeMs: parseFloat((performance.now() - _t0).toFixed(1))
+    }));
     return results;
   }
 
@@ -935,12 +1057,15 @@
     return null;
   }
   async function run() {
-    const settings = await new Promise((resolve) => {
-      chrome.storage.sync.get(
-        { priceBadges: true },
-        (s) => resolve(s)
-      );
-    });
+    const settings = await new Promise(
+      (resolve) => {
+        chrome.storage.sync.get(
+          { priceBadges: true, debugMode: false },
+          (s) => resolve(s)
+        );
+      }
+    );
+    initDebug(settings.debugMode);
     if (!settings.priceBadges) return;
     const raw = scrapeItem();
     if (!raw) {

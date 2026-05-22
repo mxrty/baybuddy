@@ -15,6 +15,7 @@ import { Settings } from "./utils";
     { id: "priceBadges", key: "priceBadges", default: true },
     { id: "excludeBroken", key: "excludeBroken", default: true },
     { id: "stickyFilters", key: "stickyFilters", default: false },
+    { id: "debugMode", key: "debugMode", default: false },
     { id: "confidenceThreshold", key: "confidenceThreshold", default: 70 },
   ];
 
@@ -91,9 +92,12 @@ import { Settings } from "./utils";
   // ── Status bar ──────────────────────────────────────────
   function updateStatus(settings: Settings) {
     const activeCount = SETTINGS.filter(
-      (s) => s.key !== "confidenceThreshold" && settings[s.key],
+      (s) =>
+        s.key !== "confidenceThreshold" &&
+        s.key !== "debugMode" &&
+        settings[s.key],
     ).length;
-    const total = SETTINGS.length - 1;
+    const total = SETTINGS.length - 2;
 
     if (activeCount > 0) {
       statusBar.classList.remove("inactive");

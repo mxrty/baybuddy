@@ -1,4 +1,5 @@
 import { detectCurrency } from "../utils";
+import { dbg } from "../debug";
 import { analyseItemLookup } from "../pricing";
 import type { ItemLookupResult } from "../pricing";
 import { fetchSoldListings } from "../pricing/soldFetch";
@@ -585,6 +586,40 @@ export function renderDashboard(
   _currentCurrency = currency;
 
   const { rootGroups, summary, assessments } = result;
+
+  dbg("dashboard", "render", () => {
+    const topDeals = assessments
+      .filter(
+        (a) =>
+          a.showBadge &&
+          a.rating === "good" &&
+          a.matchedGroup !== null &&
+          a.matchedGroup.stats.median > 0,
+      )
+      .map((a) => ({
+        title: a.listing.title,
+        price: a.listing.totalPrice,
+        median: a.matchedGroup!.stats.median,
+        discountPct: parseFloat(
+          (
+            ((a.matchedGroup!.stats.median - a.listing.totalPrice) /
+              a.matchedGroup!.stats.median) *
+            100
+          ).toFixed(1),
+        ),
+      }))
+      .sort((x, y) => y.discountPct - x.discountPct)
+      .slice(0, 5);
+
+    return {
+      totalGroups: rootGroups.length,
+      totalListingsAnalysed: summary.totalListingsAnalysed,
+      filteredOut: summary.filteredOut,
+      sortState: _sort,
+      hideInsufficient: _hideInsufficient,
+      topDeals,
+    };
+  });
 
   let panel = document.getElementById("bb-overview-panel");
   let needsAppend = false;

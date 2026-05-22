@@ -4,6 +4,7 @@
  */
 
 import { detectCurrency } from "./utils";
+import { initDebug } from "./debug";
 import { isExcluded, isMultiVariant, cleanTitle } from "./pricing/parse";
 import { analysePricingVsSold } from "./pricing/index";
 import { fetchSoldListings } from "./pricing/soldFetch";
@@ -78,11 +79,15 @@ function findPriceElement(): Element | null {
 }
 
 async function run(): Promise<void> {
-  const settings = await new Promise<{ priceBadges: boolean }>((resolve) => {
-    chrome.storage.sync.get({ priceBadges: true }, (s) =>
-      resolve(s as { priceBadges: boolean }),
-    );
-  });
+  const settings = await new Promise<{ priceBadges: boolean; debugMode: boolean }>(
+    (resolve) => {
+      chrome.storage.sync.get(
+        { priceBadges: true, debugMode: false },
+        (s) => resolve(s as { priceBadges: boolean; debugMode: boolean }),
+      );
+    },
+  );
+  initDebug(settings.debugMode);
 
   if (!settings.priceBadges) return;
 
