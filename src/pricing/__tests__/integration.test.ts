@@ -30,27 +30,27 @@ function leafGroups(groups: PricingGroup[]): PricingGroup[] {
   return allGroups(groups).filter((g) => g.children.length === 0);
 }
 
-// ── iPhone 16 — hierarchical grouping ────────────────────────────────────────
+// ── iPhone 16 — flat model groups ────────────────────────────────────────────
 
-describe("iphone-16-sold — hierarchical structure", () => {
+describe("iphone-16-sold — flat model groups", () => {
   let result: PricingResult;
 
   beforeAll(() => {
     result = analysePricing(loadDataset("iphone-16-sold"), "iphone 16");
   });
 
-  // Task 5: model groups are flat — no hierarchical splitting
-  test.skip("produces at least one top-level group with children (hierarchical split fired)", () => {
-    const withChildren = result.rootGroups.filter((g) => g.children.length > 0);
-    expect(withChildren.length).toBeGreaterThanOrEqual(1);
+  test("all model groups are flat (depth 0, no children)", () => {
+    for (const g of result.rootGroups) {
+      expect(g.depth).toBe(0);
+      expect(g.children).toHaveLength(0);
+    }
   });
 
-  // Task 5: model group labels are model-number keys, not brand names
-  test.skip("iphone-containing groups exist at the top level", () => {
-    const iphoneGroups = result.rootGroups.filter((g) =>
-      g.label.includes("iphone"),
-    );
-    expect(iphoneGroups.length).toBeGreaterThanOrEqual(1);
+  test("group labels are model-token keys, not brand names", () => {
+    for (const g of result.rootGroups) {
+      // Groups keyed by storage/model tokens like "128gb", "256gb" — never brand "iphone"
+      expect(g.label).not.toMatch(/^iphone/i);
+    }
   });
 
   test("at least one group contains Pro listings", () => {
@@ -76,13 +76,6 @@ describe("iphone-16-sold — hierarchical structure", () => {
     );
     if (proMaxGroup && plainGroup) {
       expect(proMaxGroup.id).not.toBe(plainGroup.id);
-    }
-  });
-
-  test("hierarchical splitter never creates a child group with fewer than 3 items", () => {
-    const flat = allGroups(result.rootGroups);
-    for (const g of flat.filter((g) => g.depth > 0)) {
-      expect(g.items.length).toBeGreaterThanOrEqual(3);
     }
   });
 });
@@ -193,7 +186,7 @@ describe("air-purifier-sold — brand separation", () => {
   });
 });
 
-// ── Stoneware — no single giant cluster ──────────────────────────────────────
+// ── Stoneware — no monolithic cluster ──────────────────────────────────────
 
 describe("stoneware-sold — no monolithic cluster", () => {
   let result: PricingResult;
@@ -349,6 +342,21 @@ describe("cross-dataset — no badge from groups < 3 items", () => {
   }
 });
 
+describe("cross-dataset — flat model structure", () => {
+  for (const dataset of ALL_DATASETS) {
+    test(`${dataset}: all groups have depth 0 and no children`, () => {
+      const result = analysePricing(
+        loadDataset(dataset),
+        dataset.replace(/-/g, " "),
+      );
+      for (const g of result.rootGroups) {
+        expect(g.depth).toBe(0);
+        expect(g.children).toHaveLength(0);
+      }
+    });
+  }
+});
+
 // ── Performance ───────────────────────────────────────────────────────────────
 
 describe("performance — largest dataset under 200ms", () => {
@@ -395,15 +403,6 @@ describe("analysePricingVsSold — active listings rated against sold groups", (
     expect(result.summary.totalListingsAnalysed).toBeLessThan(soldRaw.length);
   });
 
-  // Task 5: model groups only include sold items with model tokens; count may differ
-  test.skip("root groups are derived from sold corpus (group item count can exceed active count)", () => {
-    const totalGroupItems = allGroups(result.rootGroups).reduce(
-      (sum, g) => sum + g.items.length,
-      0,
-    );
-    expect(totalGroupItems).toBeGreaterThan(result.summary.totalListingsAnalysed);
-  });
-
   test("at least some active listings match a sold group and receive a badge", () => {
     const badged = result.assessments.filter((a) => a.showBadge);
     expect(badged.length).toBeGreaterThan(0);
@@ -434,3 +433,47 @@ describe("analysePricingVsSold — active listings rated against sold groups", (
   });
 });
 
+// ── Comp quality — model gate regression guard ───────────────────────────────
+
+describe("comp quality — model gate regression guard", () => {
+  test("every badged assessment: all comps in matchedGroup share ≥1 model token with the active listing", () => {
+    const sold = loadDataset("iphone-16-sold");
+    const active = loadDataset("iphone-16-active");
+    const result = analysePricingVsSold(active, sold, "iphone 16");
+
+    let assertionCount = 0;
+    for (const assessment of result.assessments) {
+      if (!assessment.showBadge || !assessment.matchedGroup) continue;
+      const listingModels = new Set(assessment.listing.tokens.model);
+      if (listingModels.size === 0) continue;
+
+      for (const comp of assessment.matchedGroup.items) {
+        const hasOverlap = comp.tokens.model.some((m) => listingModels.has(m));
+        expect(hasOverlap).toBe(true);
+        assertionCount++;
+      }
+    }
+
+    // Ensure the guard actually ran — at least one badged listing with model tokens
+    expect(assertionCount).toBeGreaterThan(0);
+  });
+
+  test("Xbox 360 comps do not bleed into Series X/S groups (cross-model gate)", () => {
+    const sold = loadDataset("xbox-sold");
+    const result = analysePricing(sold, "xbox");
+
+    for (const assessment of result.assessments) {
+      if (!assessment.showBadge || !assessment.matchedGroup) continue;
+      const listingModels = new Set(assessment.listing.tokens.model);
+      if (listingModels.size === 0) continue;
+
+      for (const comp of assessment.matchedGroup.items) {
+        const compModels = comp.tokens.model;
+        if (compModels.length === 0) continue;
+        // Both have model tokens — they must share at least one
+        const hasOverlap = compModels.some((m) => listingModels.has(m));
+        expect(hasOverlap).toBe(true);
+      }
+    }
+  });
+});
