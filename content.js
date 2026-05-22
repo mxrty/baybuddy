@@ -925,12 +925,35 @@
     low: "#f0ad4e",
     insufficient: "#aaa"
   };
+  var CONF_ORDER = {
+    high: 0,
+    medium: 1,
+    low: 2,
+    insufficient: 3
+  };
   function escapeHtml(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
   function isPageViewingSold() {
     const params = new URLSearchParams(window.location.search);
     return params.get("LH_Sold") === "1" && params.get("LH_Complete") === "1";
+  }
+  var _lastResult = null;
+  var _currentCurrency = "";
+  var _sort = "confidence";
+  var _hideInsufficient = false;
+  function sortedFilteredGroups(groups) {
+    let out = _hideInsufficient ? groups.filter((g) => g.confidence !== "insufficient") : [...groups];
+    if (_sort === "count") {
+      out.sort((a, b) => b.stats.count - a.stats.count);
+    } else if (_sort === "median") {
+      out.sort((a, b) => a.stats.median - b.stats.median);
+    } else {
+      out.sort(
+        (a, b) => (CONF_ORDER[a.confidence] ?? 3) - (CONF_ORDER[b.confidence] ?? 3)
+      );
+    }
+    return out;
   }
   function findCardByListing(link, title) {
     try {
@@ -986,6 +1009,19 @@
     }
     return all.slice(0, 20);
   }
+  function renderBoxPlot(stats, currency) {
+    const { min, max, p25, median, p75 } = stats;
+    if (max <= min || stats.count < 2) {
+      return `<div style="font-size:10px;color:#888;margin-top:4px;">${fmtPrice2(median, currency)}</div>`;
+    }
+    const range = max - min;
+    const pct = (v) => `${Math.max(0, Math.min(100, (v - min) / range * 100)).toFixed(1)}%`;
+    const p25pct = pct(p25);
+    const medpct = pct(median);
+    const p75pct = pct(p75);
+    const boxWidth = `${Math.max(2, Math.min(100, (p75 - p25) / range * 100)).toFixed(1)}%`;
+    return `<div style="margin-top:6px;"><div style="position:relative;height:12px;margin:0 2px;"><div style="position:absolute;top:5px;left:0;right:0;height:2px;background:rgba(0,0,0,0.1);border-radius:1px;"></div><div style="position:absolute;top:5px;left:0;width:${p25pct};height:2px;background:#bbb;"></div><div style="position:absolute;top:2px;left:${p25pct};width:${boxWidth};height:8px;background:rgba(54,101,243,0.2);border:1px solid rgba(54,101,243,0.45);border-radius:2px;"></div><div style="position:absolute;top:1px;left:${medpct};width:2px;height:10px;background:#3665f3;border-radius:1px;transform:translateX(-1px);"></div><div style="position:absolute;top:5px;left:${p75pct};right:0;height:2px;background:#bbb;"></div></div><div style="display:flex;justify-content:space-between;font-size:9px;color:#888;margin-top:2px;padding:0 2px;"><span>${fmtPrice2(min, currency)}</span><span style="color:#3665f3;font-weight:600;">${fmtPrice2(median, currency)}</span><span>${fmtPrice2(max, currency)}</span></div></div>`;
+  }
   function renderTopDeals(assessments, currency) {
     const deals = assessments.filter(
       (a) => a.showBadge && a.rating === "good" && a.matchedGroup !== null && a.matchedGroup.stats.median > 0
@@ -1003,15 +1039,28 @@
     }).join("");
     return `<div style="margin-bottom:12px;padding-bottom:4px;border-bottom:1px solid rgba(0,0,0,0.08);"><div style="font-size:11px;font-weight:700;color:#161822;margin-bottom:6px;letter-spacing:0.3px;text-transform:uppercase;">&#x1F3C6; Top Deals</div>` + rows + `</div>`;
   }
+  function renderControls() {
+    const btnBase = `display:inline-flex;align-items:center;padding:2px 7px;border-radius:3px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid rgba(54,101,243,0.3);background:transparent;color:#3665f3;`;
+    const btnActive = `background:rgba(54,101,243,0.12);border-color:#3665f3;color:#3665f3;`;
+    const sortButtons = [
+      { key: "confidence", label: "Confidence" },
+      { key: "count", label: "Count" },
+      { key: "median", label: "Median" }
+    ];
+    const sortHtml = sortButtons.map(({ key, label }) => {
+      const active = _sort === key ? btnActive : "";
+      return `<button data-bb-sort="${key}" style="${btnBase}${active}">${label}</button>`;
+    }).join("");
+    const filterActive = _hideInsufficient ? btnActive : "";
+    const filterHtml = `<button data-bb-filter="insufficient" style="${btnBase}${filterActive}">Hide insufficient</button>`;
+    return `<div id="bb-controls" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,0.07);"><span style="font-size:10px;color:#888;align-self:center;margin-right:2px;">Sort:</span>` + sortHtml + `<span style="margin-left:auto;">` + filterHtml + `</span></div>`;
+  }
   function renderGroupCard(group, currency, depth) {
     const isInsufficient = group.confidence === "insufficient";
     const opacity = isInsufficient ? "0.55" : "1";
     const indentPx = depth * 12;
     const confColor = CONFIDENCE_COLOR[group.confidence] ?? "#aaa";
     const confLabel = CONFIDENCE_LABEL[group.confidence] ?? "";
-    const medianStr = fmtPrice2(group.stats.median, currency);
-    const minStr = fmtPrice2(group.stats.min, currency);
-    const maxStr = fmtPrice2(group.stats.max, currency);
     const leafItems = collectLeafItems(group);
     const itemsAttr = escapeHtml(JSON.stringify(leafItems));
     let bodyHtml;
@@ -1026,18 +1075,17 @@
       });
       bodyHtml = `<ul style="margin:6px 0 0;padding-left:${indentPx + 16}px;color:#575b6e;">` + items.join("") + "</ul>";
     }
-    return `<details data-bb-items="${itemsAttr}" style="margin-top:8px;padding:8px;background:rgba(0,0,0,0.02);border-radius:4px;opacity:${opacity};"><summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding-left:${indentPx}px;"><strong style="font-size:12px;">${escapeHtml(group.label)}</strong><span style="font-size:11px;color:#575b6e;">${group.stats.count} items &middot; median ${medianStr} &middot; ${minStr}&ndash;${maxStr}</span><span style="font-size:10px;color:${confColor};margin-left:auto;">${confLabel}</span></summary>` + bodyHtml + `</details>`;
+    return `<details data-bb-items="${itemsAttr}" style="margin-top:8px;padding:8px;background:rgba(0,0,0,0.02);border-radius:4px;opacity:${opacity};"><summary style="cursor:pointer;list-style:none;display:flex;flex-direction:column;gap:2px;padding-left:${indentPx}px;"><div style="display:flex;align-items:center;gap:8px;"><strong style="font-size:12px;">${escapeHtml(group.label)}</strong><span style="font-size:11px;color:#575b6e;">${group.stats.count} items</span><span style="font-size:10px;color:${confColor};margin-left:auto;">${confLabel}</span></div>` + renderBoxPlot(group.stats, currency) + `</summary>` + bodyHtml + `</details>`;
   }
-  function attachScrollListeners(panel) {
-    panel.querySelectorAll("[data-bb-link]").forEach((el) => {
-      el.addEventListener("click", () => {
-        const link = el.dataset.bbLink ?? "";
-        const title = el.dataset.bbTitle ?? "";
-        const card = findCardByListing(link, title);
-        if (card) scrollToAndHighlight([card]);
-      });
-    });
-    panel.querySelectorAll("details[data-bb-items]").forEach((el) => {
+  function renderGroupsListHtml(rootGroups, currency) {
+    const groups = sortedFilteredGroups(rootGroups);
+    if (groups.length === 0) {
+      return `<div style="font-size:11px;color:#888;padding:8px 0;">No groups to show.</div>`;
+    }
+    return groups.map((g) => renderGroupCard(g, currency, 0)).join("");
+  }
+  function attachGroupToggleListeners(container) {
+    container.querySelectorAll("details[data-bb-items]").forEach((el) => {
       el.addEventListener("toggle", () => {
         if (!el.open) return;
         let items = [];
@@ -1054,8 +1102,55 @@
       });
     });
   }
+  function attachScrollListeners(panel) {
+    panel.querySelectorAll("[data-bb-link]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const link = el.dataset.bbLink ?? "";
+        const title = el.dataset.bbTitle ?? "";
+        const card = findCardByListing(link, title);
+        if (card) scrollToAndHighlight([card]);
+      });
+    });
+    const groupsList = panel.querySelector("#bb-groups-list");
+    if (groupsList) attachGroupToggleListeners(groupsList);
+  }
+  function attachControlListeners(panel) {
+    panel.querySelectorAll("[data-bb-sort]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        _sort = btn.dataset.bbSort ?? "confidence";
+        rebuildGroupsSection(panel);
+      });
+    });
+    const filterBtn = panel.querySelector("[data-bb-filter='insufficient']");
+    if (filterBtn) {
+      filterBtn.addEventListener("click", () => {
+        _hideInsufficient = !_hideInsufficient;
+        rebuildGroupsSection(panel);
+      });
+    }
+  }
+  function rebuildGroupsSection(panel) {
+    if (!_lastResult) return;
+    const controlsEl = panel.querySelector("#bb-controls");
+    if (controlsEl) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = renderControls();
+      const newControls = tmp.firstElementChild;
+      if (newControls) {
+        controlsEl.replaceWith(newControls);
+        attachControlListeners(panel);
+      }
+    }
+    const listEl = panel.querySelector("#bb-groups-list");
+    if (listEl) {
+      listEl.innerHTML = renderGroupsListHtml(_lastResult.rootGroups, _currentCurrency);
+      attachGroupToggleListeners(listEl);
+    }
+  }
   function renderDashboard(result, root) {
     const currency = detectCurrency(window.location.host);
+    _lastResult = result;
+    _currentCurrency = currency;
     const { rootGroups, summary, assessments } = result;
     let panel = document.getElementById("bb-overview-panel");
     let needsAppend = false;
@@ -1069,11 +1164,12 @@
       panel.remove();
       return;
     }
-    const groupsHtml = rootGroups.map((g) => renderGroupCard(g, currency, 0)).join("");
     const rangeStr = summary.overallPriceRange.max > 0 ? `${fmtPrice2(summary.overallPriceRange.min, currency)}&ndash;${fmtPrice2(summary.overallPriceRange.max, currency)}` : "n/a";
     const topDealsHtml = isPageViewingSold() ? "" : renderTopDeals(assessments, currency);
-    panel.innerHTML = `<details style="background:#fff;border:1px solid rgba(54,101,243,0.2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);"><summary style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;background:rgba(54,101,243,0.05);border-radius:8px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">&#x1F4CA;</span><span style="font-size:13px;font-weight:600;">Price Intelligence</span><span style="font-size:12px;color:#575b6e;">${summary.totalListingsAnalysed} items &middot; ${summary.totalGroups} groups</span></div><div style="display:flex;gap:16px;font-size:13px;align-items:center;"><span style="color:#575b6e;">Range: <strong style="color:#3665f3;">${rangeStr}</strong></span><span style="color:#3665f3;font-size:10px;">&#x25BC;</span></div></summary><div style="padding:0 16px 16px;font-size:12px;max-height:calc(100vh - 160px);overflow-y:auto;">` + topDealsHtml + groupsHtml + `</div></details>`;
+    const groupsListHtml = renderGroupsListHtml(rootGroups, currency);
+    panel.innerHTML = `<details style="background:#fff;border:1px solid rgba(54,101,243,0.2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);"><summary style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;background:rgba(54,101,243,0.05);border-radius:8px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">&#x1F4CA;</span><span style="font-size:13px;font-weight:600;">Price Intelligence</span><span style="font-size:12px;color:#575b6e;">${summary.totalListingsAnalysed} items &middot; ${summary.totalGroups} groups</span></div><div style="display:flex;gap:16px;font-size:13px;align-items:center;"><span style="color:#575b6e;">Range: <strong style="color:#3665f3;">${rangeStr}</strong></span><span style="color:#3665f3;font-size:10px;">&#x25BC;</span></div></summary><div style="padding:0 16px 16px;font-size:12px;max-height:calc(100vh - 160px);overflow-y:auto;">` + topDealsHtml + renderControls() + `<div id="bb-groups-list">` + groupsListHtml + `</div></div></details>`;
     attachScrollListeners(panel);
+    attachControlListeners(panel);
     if (needsAppend) {
       document.body.appendChild(panel);
     }
