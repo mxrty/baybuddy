@@ -6,3 +6,4 @@ node_modules/
 test-data/*-active.json
 test-data/*-sold.json
 test-data/*-used.json
+debug-logs/*.json

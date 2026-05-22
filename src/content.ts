@@ -614,4 +614,5 @@ import { fetchSoldListings, performGapFill } from "./pricing/soldFetch";
   } else {
     init();
   }
+
 })();

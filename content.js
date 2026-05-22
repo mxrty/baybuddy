@@ -1,23 +1,53 @@
 "use strict";
 (() => {
   // src/debug.ts
+  var MAX_LOGS = 5e3;
   var _enabled = false;
+  var _buffer = [];
+  var _logEl = null;
+  var _syncTimeout = null;
+  function syncDom() {
+    try {
+      if (!_logEl) {
+        _logEl = document.createElement("script");
+        _logEl.type = "application/json";
+        _logEl.id = "__bb_debug_log";
+        (document.documentElement ?? document.body).appendChild(_logEl);
+      }
+      _logEl.textContent = JSON.stringify({ url: location.href, logs: _buffer });
+    } catch (_) {
+    }
+  }
+  function scheduleSyncDom() {
+    if (_syncTimeout !== null) {
+      clearTimeout(_syncTimeout);
+    }
+    _syncTimeout = setTimeout(() => {
+      syncDom();
+      _syncTimeout = null;
+    }, 1e3);
+  }
+  function push(entry) {
+    _buffer.push(entry);
+    if (_buffer.length > MAX_LOGS) {
+      _buffer.shift();
+    }
+    scheduleSyncDom();
+  }
   function initDebug(enabled) {
     _enabled = enabled;
   }
+  var _origLog = console.log.bind(console);
   function dbg(section, label, data) {
     if (!_enabled) return;
     const prefix = `[BayBuddy:DEBUG:${section}]`;
     if (data) {
       const payload = data();
-      if (typeof payload === "object" && payload !== null) {
-        console.log(prefix, label);
-        console.log(JSON.stringify(payload, null, 2));
-      } else {
-        console.log(prefix, label, payload);
-      }
+      push({ level: "debug", section, label, data: payload, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+      _origLog(prefix, label, payload);
     } else {
-      console.log(prefix, label);
+      push({ level: "debug", section, label, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+      _origLog(prefix, label);
     }
   }
   function dbgGroupStart(section, label) {
