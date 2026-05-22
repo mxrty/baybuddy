@@ -3,10 +3,11 @@
  */
 
 import { detectCurrency, Settings } from "./utils";
-import { analysePricing } from "./pricing";
+import { analysePricing, analysePricingVsSold } from "./pricing";
 import type { RawListing } from "./pricing";
-import { renderBadges } from "./ui/badge";
+import { clearBadges, renderBadges } from "./ui/badge";
 import { renderDashboard } from "./ui/dashboard";
+import { fetchSoldListings } from "./pricing/soldFetch";
 
 (function () {
   "use strict";
@@ -360,7 +361,7 @@ import { renderDashboard } from "./ui/dashboard";
   let isApplyingPriceIntelligence = false;
   let needsReapply = false;
 
-  function applyPriceIntelligence(settings: Settings, retryCount = 0) {
+  async function applyPriceIntelligence(settings: Settings, retryCount = 0) {
     if (isApplyingPriceIntelligence) {
       needsReapply = true;
       return;
@@ -376,17 +377,54 @@ import { renderDashboard } from "./ui/dashboard";
         return;
       }
 
-      const rawListings = collectRawListings();
-      const searchTerm =
-        new URL(window.location.href).searchParams.get("_nkw") || "";
-      const result = analysePricing(rawListings, searchTerm, {
+      const url = new URL(window.location.href);
+      const searchTerm = url.searchParams.get("_nkw") || "";
+      const viewingSold = isViewingSold();
+      const pricingSettings = {
         enabled: true,
         similarityThreshold: settings.confidenceThreshold / 100,
-      });
-
+      };
       const root = document.documentElement as HTMLElement;
-      renderBadges(result, root);
-      renderDashboard(result, root);
+
+      if (viewingSold) {
+        // Sold page: render page-1 DOM listings immediately, then expand with fetched pages 2–5
+        const rawListings = collectRawListings();
+        const immediateResult = analysePricing(rawListings, searchTerm, pricingSettings);
+        renderBadges(immediateResult, root);
+        renderDashboard(immediateResult, root);
+
+        if (searchTerm) {
+          const moreSold = await fetchSoldListings(searchTerm, { skipPage1: true });
+          if (moreSold.length > 0 && isStillSamePage(searchTerm, true)) {
+            const allSold = [...rawListings, ...moreSold];
+            const fullResult = analysePricing(allSold, searchTerm, pricingSettings);
+            clearBadges(root);
+            renderBadges(fullResult, root);
+            renderDashboard(fullResult, root);
+          }
+        }
+      } else {
+        // Active page: render immediately with active-vs-active, then upgrade vs sold comps
+        const rawListings = collectRawListings();
+        const immediateResult = analysePricing(rawListings, searchTerm, pricingSettings);
+        renderBadges(immediateResult, root);
+        renderDashboard(immediateResult, root);
+
+        if (searchTerm) {
+          const soldListings = await fetchSoldListings(searchTerm);
+          if (soldListings.length > 0 && isStillSamePage(searchTerm, false)) {
+            const vsoldResult = analysePricingVsSold(
+              collectRawListings(), // re-collect in case DOM updated during fetch
+              soldListings,
+              searchTerm,
+              pricingSettings,
+            );
+            clearBadges(root);
+            renderBadges(vsoldResult, root);
+            renderDashboard(vsoldResult, root);
+          }
+        }
+      }
     } finally {
       isApplyingPriceIntelligence = false;
       if (needsReapply) {
@@ -394,6 +432,12 @@ import { renderDashboard } from "./ui/dashboard";
         setTimeout(() => applyPriceIntelligence(settings), 50);
       }
     }
+  }
+
+  function isStillSamePage(expectedSearchTerm: string, expectedSold: boolean): boolean {
+    const url = new URL(window.location.href);
+    const currentTerm = url.searchParams.get("_nkw") || "";
+    return currentTerm === expectedSearchTerm && isViewingSold() === expectedSold;
   }
 
   // ══════════════════════════════════════════════════════════

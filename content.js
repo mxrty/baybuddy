@@ -120,8 +120,8 @@
     return vocab;
   }
   function tokenize(title, identityVocab) {
-    const cacheKey = title;
-    const cached = memoMap.get(cacheKey);
+    const cacheKey2 = title;
+    const cached = memoMap.get(cacheKey2);
     if (cached) return cached;
     const lower = title.toLowerCase();
     const identity = [];
@@ -139,7 +139,7 @@
       }
     }
     const result = { identity, descriptors, noise, raw };
-    memoMap.set(cacheKey, result);
+    memoMap.set(cacheKey2, result);
     return result;
   }
   function weightedSimilarity(a, b) {
@@ -604,6 +604,66 @@
     const percentile = prices.length > 0 ? below / prices.length : null;
     return { listing, rating, matchedGroup, percentile, showBadge: true };
   }
+  var CROSS_CORPUS_THRESHOLD = 0.15;
+  var CENTROID_MAJORITY2 = 0.5;
+  function buildGroupCentroid(group) {
+    const identityCounts = /* @__PURE__ */ new Map();
+    const descriptorCounts = /* @__PURE__ */ new Map();
+    const n = group.items.length;
+    for (const item of group.items) {
+      for (const tok of item.tokens.identity) {
+        identityCounts.set(tok, (identityCounts.get(tok) ?? 0) + 1);
+      }
+      for (const tok of item.tokens.descriptors) {
+        descriptorCounts.set(tok, (descriptorCounts.get(tok) ?? 0) + 1);
+      }
+    }
+    const threshold = Math.max(1, Math.ceil(n * CENTROID_MAJORITY2));
+    return {
+      identity: [...identityCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
+      descriptors: [...descriptorCounts.entries()].filter(([, c]) => c >= threshold).map(([t]) => t),
+      noise: /* @__PURE__ */ new Set(),
+      raw: /* @__PURE__ */ new Set()
+    };
+  }
+  function rateListingVsSold(listing, groups) {
+    let matchedGroup = null;
+    let bestScore = CROSS_CORPUS_THRESHOLD;
+    function search(gs) {
+      for (const g of gs) {
+        if (g.confidence === "insufficient") {
+          search(g.children);
+          continue;
+        }
+        const score = weightedSimilarity(listing.tokens, buildGroupCentroid(g));
+        if (score > bestScore) {
+          bestScore = score;
+          matchedGroup = g;
+        }
+        search(g.children);
+      }
+    }
+    search(groups);
+    if (!matchedGroup) {
+      return {
+        listing,
+        rating: "no-data",
+        matchedGroup: null,
+        percentile: null,
+        showBadge: false
+      };
+    }
+    const { totalPrice } = listing;
+    const { p25, p75 } = matchedGroup.stats;
+    let rating;
+    if (totalPrice < p25) rating = "good";
+    else if (totalPrice > p75) rating = "high";
+    else rating = "fair";
+    const prices = matchedGroup.items.map((l) => l.totalPrice).sort((a, b) => a - b);
+    const below = prices.filter((p) => p < totalPrice).length;
+    const percentile = prices.length > 0 ? below / prices.length : null;
+    return { listing, rating, matchedGroup, percentile, showBadge: true };
+  }
 
   // src/pricing/index.ts
   function allLeafGroups(groups) {
@@ -658,6 +718,58 @@
       assessments,
       summary: {
         totalListingsAnalysed: active.length,
+        totalGroups: allLeafGroups(rootGroups).length,
+        filteredOut,
+        overallPriceRange: { min: overallMin, max: overallMax }
+      },
+      searchTerm
+    };
+  }
+  function analysePricingVsSold(activeRaw, soldRaw, searchTerm, settings) {
+    clearTokenizeCache();
+    resetClusterIdCounter();
+    const parsedSold = parseRawListings(soldRaw);
+    const soldFiltered = parsedSold.filter((l) => !l.isJunk && !l.isExcluded);
+    const parsedActive = parseRawListings(activeRaw);
+    const activeFiltered = parsedActive.filter((l) => !l.isJunk && !l.isExcluded);
+    const filteredOut = parsedActive.filter((l) => l.isJunk || l.isExcluded).length;
+    const soldTitles = soldFiltered.map((l) => l.title);
+    const soldPrices = soldFiltered.map((l) => l.totalPrice);
+    const vocab = discoverIdentityVocab(soldTitles, soldPrices);
+    const soldWithTokens = soldFiltered.map((l) => ({
+      ...l,
+      tokens: tokenize(l.title, vocab)
+    }));
+    const clusterOptions = settings?.similarityThreshold !== void 0 ? { similarityThreshold: settings.similarityThreshold } : void 0;
+    const rootGroups = clusterListings(soldWithTokens, clusterOptions);
+    for (const g of rootGroups) computeGroupStats(g);
+    const searchVocab = discoverIdentityVocab([searchTerm]);
+    const searchTokens = tokenize(searchTerm, searchVocab);
+    function assignRelevance(groups) {
+      for (const g of groups) {
+        g.relevanceScore = computeRelevance(g, searchTokens);
+        assignRelevance(g.children);
+      }
+    }
+    assignRelevance(rootGroups);
+    rootGroups.sort(
+      (a, b) => b.relevanceScore - a.relevanceScore || b.stats.count - a.stats.count
+    );
+    const activeWithTokens = activeFiltered.map((l) => ({
+      ...l,
+      tokens: tokenize(l.title, vocab)
+    }));
+    const assessments = activeWithTokens.map(
+      (listing) => rateListingVsSold(listing, rootGroups)
+    );
+    const allPrices = activeFiltered.map((l) => l.totalPrice).filter((p) => p > 0);
+    const overallMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+    const overallMax = allPrices.length > 0 ? Math.max(...allPrices) : 0;
+    return {
+      rootGroups,
+      assessments,
+      summary: {
+        totalListingsAnalysed: activeFiltered.length,
         totalGroups: allLeafGroups(rootGroups).length,
         filteredOut,
         overallPriceRange: { min: overallMin, max: overallMax }
@@ -737,6 +849,9 @@
       const priceContainer = card.querySelector(".s-item__price, .s-card__price");
       if (priceContainer) priceContainer.appendChild(container);
     }
+  }
+  function clearBadges(root) {
+    root.querySelectorAll(".bb-badge-container").forEach((el) => el.remove());
   }
   function renderBadges(result, root) {
     const currency = detectCurrency(window.location.host);
@@ -826,6 +941,129 @@
         main.insertBefore(panel, main.firstChild);
       }
     }
+  }
+
+  // src/pricing/soldFetch.ts
+  var CACHE_TTL_MS = 24 * 60 * 60 * 1e3;
+  var FETCH_DELAY_MS = 400;
+  var PAGES_TO_FETCH = 5;
+  function buildSoldUrl(origin, searchTerm, page) {
+    const encoded = encodeURIComponent(searchTerm.trim());
+    return `${origin}/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1&_pgn=${page}`;
+  }
+  function cacheKey(searchTerm) {
+    return `bb_sold_${searchTerm.trim().toLowerCase().replace(/\s+/g, " ")}`;
+  }
+  async function getCached(searchTerm) {
+    const key = cacheKey(searchTerm);
+    try {
+      const result = await chrome.storage.local.get(key);
+      const entry = result[key];
+      if (!entry) return null;
+      if (Date.now() - entry.fetchedAt > CACHE_TTL_MS) return null;
+      return entry.listings;
+    } catch {
+      return null;
+    }
+  }
+  async function setCached(searchTerm, listings) {
+    const key = cacheKey(searchTerm);
+    const entry = { listings, fetchedAt: Date.now() };
+    try {
+      await chrome.storage.local.set({ [key]: entry });
+    } catch {
+    }
+  }
+  var CONDITION_SELECTORS = [
+    ".s-item__subtitle",
+    ".s-item__secondary-info",
+    ".SECONDARY_INFO",
+    ".s-card__subtitle",
+    ".s-item__condition",
+    ".s-card__attribute-row"
+  ];
+  var DELIVERY_SELECTORS = [
+    ".s-card__shipping",
+    ".s-card__delivery",
+    ".s-item__shipping",
+    ".s-item__localDelivery",
+    ".s-item__delivery"
+  ];
+  function parseSoldPage(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    const cardSelectors = [
+      "li.s-card",
+      ".s-card",
+      "li.s-item",
+      ".srp-results .s-item",
+      "ul.srp-results > li"
+    ];
+    let cards = [];
+    for (const sel of cardSelectors) {
+      const found = doc.querySelectorAll(sel);
+      if (found.length > 0) {
+        cards = found;
+        break;
+      }
+    }
+    const results = [];
+    cards.forEach((card) => {
+      if (card.classList.contains("s-item__pl-on-bottom") || card.classList.contains("s-card__pl-on-bottom"))
+        return;
+      const titleEl = card.querySelector(".s-item__title, .s-card__title");
+      const priceEl = card.querySelector(".s-item__price, .s-card__price");
+      if (!titleEl || !priceEl) return;
+      const conditionText = CONDITION_SELECTORS.flatMap(
+        (sel) => Array.from(card.querySelectorAll(sel))
+      ).map((el) => el.textContent || "").join(" ").trim();
+      const deliveryText = DELIVERY_SELECTORS.map(
+        (sel) => card.querySelector(sel)?.textContent || ""
+      ).find((t) => t.length > 0) ?? "";
+      const linkEl = card.querySelector(
+        "a.s-item__link, a.s-card__link"
+      );
+      results.push({
+        title: titleEl.textContent || "",
+        priceText: priceEl.textContent || "",
+        condition: conditionText,
+        link: linkEl?.getAttribute("href") || "",
+        deliveryText
+      });
+    });
+    return results;
+  }
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  async function fetchSoldListings(searchTerm, opts = {}) {
+    const cached = await getCached(searchTerm);
+    if (cached) return cached;
+    const origin = opts.origin ?? window.location.origin;
+    const startPage = opts.skipPage1 ? 2 : 1;
+    const results = [];
+    for (let page = startPage; page <= PAGES_TO_FETCH; page++) {
+      if (page > startPage) await sleep(FETCH_DELAY_MS);
+      const url = buildSoldUrl(origin, searchTerm, page);
+      try {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          headers: { Accept: "text/html" }
+        });
+        if (!response.ok) break;
+        const html = await response.text();
+        results.push(...parseSoldPage(html));
+      } catch {
+        break;
+      }
+    }
+    if (results.length > 0) {
+      await setCached(searchTerm, results);
+    }
+    console.log(
+      `[BayBuddy] soldFetch: fetched ${results.length} sold listings for "${searchTerm}"`
+    );
+    return results;
   }
 
   // src/content.ts
@@ -1078,7 +1316,7 @@
     }
     let isApplyingPriceIntelligence = false;
     let needsReapply = false;
-    function applyPriceIntelligence(settings, retryCount = 0) {
+    async function applyPriceIntelligence(settings, retryCount = 0) {
       if (isApplyingPriceIntelligence) {
         needsReapply = true;
         return;
@@ -1091,15 +1329,50 @@
           setTimeout(() => applyPriceIntelligence(settings, retryCount + 1), 500);
           return;
         }
-        const rawListings = collectRawListings();
-        const searchTerm = new URL(window.location.href).searchParams.get("_nkw") || "";
-        const result = analysePricing(rawListings, searchTerm, {
+        const url = new URL(window.location.href);
+        const searchTerm = url.searchParams.get("_nkw") || "";
+        const viewingSold = isViewingSold();
+        const pricingSettings = {
           enabled: true,
           similarityThreshold: settings.confidenceThreshold / 100
-        });
+        };
         const root = document.documentElement;
-        renderBadges(result, root);
-        renderDashboard(result, root);
+        if (viewingSold) {
+          const rawListings = collectRawListings();
+          const immediateResult = analysePricing(rawListings, searchTerm, pricingSettings);
+          renderBadges(immediateResult, root);
+          renderDashboard(immediateResult, root);
+          if (searchTerm) {
+            const moreSold = await fetchSoldListings(searchTerm, { skipPage1: true });
+            if (moreSold.length > 0 && isStillSamePage(searchTerm, true)) {
+              const allSold = [...rawListings, ...moreSold];
+              const fullResult = analysePricing(allSold, searchTerm, pricingSettings);
+              clearBadges(root);
+              renderBadges(fullResult, root);
+              renderDashboard(fullResult, root);
+            }
+          }
+        } else {
+          const rawListings = collectRawListings();
+          const immediateResult = analysePricing(rawListings, searchTerm, pricingSettings);
+          renderBadges(immediateResult, root);
+          renderDashboard(immediateResult, root);
+          if (searchTerm) {
+            const soldListings = await fetchSoldListings(searchTerm);
+            if (soldListings.length > 0 && isStillSamePage(searchTerm, false)) {
+              const vsoldResult = analysePricingVsSold(
+                collectRawListings(),
+                // re-collect in case DOM updated during fetch
+                soldListings,
+                searchTerm,
+                pricingSettings
+              );
+              clearBadges(root);
+              renderBadges(vsoldResult, root);
+              renderDashboard(vsoldResult, root);
+            }
+          }
+        }
       } finally {
         isApplyingPriceIntelligence = false;
         if (needsReapply) {
@@ -1107,6 +1380,11 @@
           setTimeout(() => applyPriceIntelligence(settings), 50);
         }
       }
+    }
+    function isStillSamePage(expectedSearchTerm, expectedSold) {
+      const url = new URL(window.location.href);
+      const currentTerm = url.searchParams.get("_nkw") || "";
+      return currentTerm === expectedSearchTerm && isViewingSold() === expectedSold;
     }
     const STICKY_STORAGE_KEY = "bb_stickyParams";
     function getCurrentFilterParams() {

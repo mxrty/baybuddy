@@ -5,7 +5,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { analysePricing } from "../index";
+import { analysePricing, analysePricingVsSold } from "../index";
 import type { RawListing, PricingGroup, PricingResult } from "../types";
 
 const TEST_DATA = path.join(__dirname, "../../../test-data");
@@ -369,5 +369,66 @@ describe("performance — largest dataset under 200ms", () => {
 
     console.log(`[perf] ${largestDataset} (${raw.length} items): ${elapsed}ms`);
     expect(elapsed).toBeLessThan(200);
+  });
+});
+
+// ── analysePricingVsSold ──────────────────────────────────────────────────────
+
+describe("analysePricingVsSold — active listings rated against sold groups", () => {
+  let result: PricingResult;
+  const soldRaw: RawListing[] = [];
+  const activeRaw: RawListing[] = [];
+
+  beforeAll(() => {
+    soldRaw.push(...loadDataset("iphone-16-sold"));
+    activeRaw.push(...loadDataset("iphone-16-active"));
+    result = analysePricingVsSold(activeRaw, soldRaw, "iphone 16");
+  });
+
+  test("assessments correspond to active listings, not sold listings", () => {
+    // Assessment count matches filtered active listings (not the larger sold set)
+    expect(result.summary.totalListingsAnalysed).toBeLessThanOrEqual(
+      activeRaw.length,
+    );
+    expect(result.summary.totalListingsAnalysed).toBeLessThan(soldRaw.length);
+  });
+
+  test("root groups are derived from sold corpus (group item count can exceed active count)", () => {
+    // Groups cluster the sold listings; their item pools may be larger than active set
+    const totalGroupItems = allGroups(result.rootGroups).reduce(
+      (sum, g) => sum + g.items.length,
+      0,
+    );
+    // Sold corpus is bigger than active — so group items should exceed active count
+    expect(totalGroupItems).toBeGreaterThan(result.summary.totalListingsAnalysed);
+  });
+
+  test("at least some active listings match a sold group and receive a badge", () => {
+    const badged = result.assessments.filter((a) => a.showBadge);
+    expect(badged.length).toBeGreaterThan(0);
+  });
+
+  test("no-data assessments have showBadge false", () => {
+    const noData = result.assessments.filter((a) => a.rating === "no-data");
+    expect(noData.every((a) => !a.showBadge)).toBe(true);
+  });
+
+  test("badges only issued from sold groups with ≥ 3 items", () => {
+    for (const a of result.assessments) {
+      if (a.showBadge && a.matchedGroup) {
+        expect(a.matchedGroup.items.length).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  test("produces more badged listings than active-only baseline", () => {
+    // Sold corpus has far more data → should yield at least as many confident groups
+    const vsoldBadged = result.assessments.filter((a) => a.showBadge).length;
+    const activeonlyResult = analysePricing(activeRaw, "iphone 16");
+    const activeOnlyBadged = activeonlyResult.assessments.filter(
+      (a) => a.showBadge,
+    ).length;
+    // With ~250–300 sold comps vs ~60 active, vs-sold should badge more listings
+    expect(vsoldBadged).toBeGreaterThanOrEqual(activeOnlyBadged);
   });
 });

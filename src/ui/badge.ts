@@ -102,6 +102,10 @@ function injectBadge(
   }
 }
 
+export function clearBadges(root: HTMLElement): void {
+  root.querySelectorAll(".bb-badge-container").forEach((el) => el.remove());
+}
+
 export function renderBadges(result: PricingResult, root: HTMLElement): void {
   const currency = detectCurrency(window.location.host);
 
