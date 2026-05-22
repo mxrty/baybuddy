@@ -5,13 +5,11 @@ import {
 } from "./tokenize";
 import { dbg, dbgGroupStart, dbgGroupEnd } from "../debug";
 import { parseRawListings } from "./parse";
-import { resetClusterIdCounter, clusterListings } from "./cluster";
+import { findComps, buildModelGroups, resetGroupIdCounter } from "./match";
 import {
-  computeGroupStats,
   computeRelevance,
   computeStats,
   rateListing,
-  rateListingVsSold,
 } from "./analyse";
 import type {
   RawListing,
@@ -20,6 +18,8 @@ import type {
   PricingGroup,
   ParsedListing,
   GroupStatistics,
+  ListingAssessment,
+  PriceRating,
 } from "./types";
 
 export type {
@@ -29,65 +29,6 @@ export type {
   PricingResult,
   PricingSettings,
 } from "./types";
-
-/**
- * Merge targeted gap-fill comps into existing sold groups and re-rate active listings.
- *
- * compsPerGroup maps a sold PricingGroup to the raw listings fetched for it.
- * New comps are parsed, tokenized with a vocab rebuilt from the group's existing items
- * plus the new comps (preserving correct centroid contributions), then appended to the
- * group. Stats are recomputed and all active assessments are re-rated.
- *
- * Returns the original result unchanged if compsPerGroup is empty.
- */
-export function mergeGapFillComps(
-  result: PricingResult,
-  compsPerGroup: Map<PricingGroup, RawListing[]>,
-): PricingResult {
-  if (compsPerGroup.size === 0) return result;
-
-  const modifiedGroups = new Set<PricingGroup>();
-
-  for (const [group, rawComps] of compsPerGroup) {
-    if (rawComps.length === 0) continue;
-
-    const newParsed = parseRawListings(rawComps).filter(
-      (l) => !l.isJunk && !l.isExcluded,
-    );
-    if (newParsed.length === 0) continue;
-
-    // Build vocab from the union of existing items + new comps so new items
-    // produce the same identity tokens that the existing centroid uses.
-    const existingTitles = group.items.map((l) => l.title);
-    const existingPrices = group.items.map((l) => l.totalPrice);
-    const newTitles = newParsed.map((l) => l.title);
-    const newPrices = newParsed.map((l) => l.totalPrice);
-    const vocab = discoverIdentityVocab(
-      [...existingTitles, ...newTitles],
-      [...existingPrices, ...newPrices],
-    );
-
-    const tokenized: ParsedListing[] = newParsed.map((l) => ({
-      ...l,
-      tokens: tokenize(l.title, vocab),
-    }));
-
-    group.items.push(...tokenized);
-    modifiedGroups.add(group);
-  }
-
-  if (modifiedGroups.size === 0) return result;
-
-  for (const g of modifiedGroups) {
-    computeGroupStats(g);
-  }
-
-  const newAssessments = result.assessments.map((a) =>
-    rateListingVsSold(a.listing, result.rootGroups),
-  );
-
-  return { ...result, assessments: newAssessments };
-}
 
 function allLeafGroups(groups: PricingGroup[]): PricingGroup[] {
   const result: PricingGroup[] = [];
@@ -101,13 +42,56 @@ function allLeafGroups(groups: PricingGroup[]): PricingGroup[] {
   return result;
 }
 
+/** Match an active listing to its model group by model-key intersection. */
+function matchToModelGroup(
+  active: ParsedListing,
+  groups: PricingGroup[],
+): PricingGroup | null {
+  if (active.tokens.model.length === 0) return null;
+  const activeModels = new Set(active.tokens.model);
+  for (const g of groups) {
+    const groupModels = new Set(g.label.split(" "));
+    if ([...activeModels].some((m) => groupModels.has(m))) return g;
+  }
+  return null;
+}
+
+function rateVsModelGroup(
+  listing: ParsedListing,
+  group: PricingGroup,
+): ListingAssessment {
+  if (group.confidence === "insufficient") {
+    return {
+      listing,
+      rating: "no-data",
+      matchedGroup: null,
+      percentile: null,
+      showBadge: false,
+    };
+  }
+
+  const { totalPrice } = listing;
+  const { p25, p75 } = group.stats;
+
+  let rating: PriceRating;
+  if (totalPrice < p25) rating = "good";
+  else if (totalPrice > p75) rating = "high";
+  else rating = "fair";
+
+  const prices = group.items.map((l) => l.totalPrice).sort((a, b) => a - b);
+  const below = prices.filter((p) => p < totalPrice).length;
+  const percentile = prices.length > 0 ? below / prices.length : null;
+
+  return { listing, rating, matchedGroup: group, percentile, showBadge: true };
+}
+
 export function analysePricing(
   rawListings: RawListing[],
   searchTerm: string,
-  settings?: PricingSettings,
+  _settings?: PricingSettings,
 ): PricingResult {
   clearTokenizeCache();
-  resetClusterIdCounter();
+  resetGroupIdCounter();
 
   const parsed = parseRawListings(rawListings);
   const filteredOut = parsed.filter((l) => l.isJunk || l.isExcluded).length;
@@ -148,6 +132,7 @@ export function analysePricing(
   dbg("tokenize", "per-listing breakdown", () =>
     withTokens.map((l) => ({
       title: l.title,
+      model: l.tokens.model,
       identity: l.tokens.identity,
       descriptors: l.tokens.descriptors,
       noise: [...l.tokens.noise],
@@ -155,49 +140,32 @@ export function analysePricing(
   );
   dbgGroupEnd();
 
-  const clusterOptions =
-    settings?.similarityThreshold !== undefined
-      ? { similarityThreshold: settings.similarityThreshold }
-      : undefined;
+  const rootGroups = buildModelGroups(withTokens);
 
-  const rootGroups = clusterListings(withTokens, clusterOptions);
-
-  dbgGroupStart("cluster", `active corpus — ${rootGroups.length} root groups`);
-  dbg("cluster", "group summary", () =>
+  dbgGroupStart("match", `active corpus — ${rootGroups.length} model groups`);
+  dbg("match", "group summary", () =>
     rootGroups.map((g) => ({
       groupId: g.id,
       label: g.label,
       memberCount: g.items.length,
-      depth: g.depth,
-      childCount: g.children.length,
+      confidence: g.confidence,
     }))
   );
   dbgGroupEnd();
 
-  // Compute stats and confidence for every group in the hierarchy
-  for (const g of rootGroups) {
-    computeGroupStats(g);
-  }
-
   // Compute relevance scores vs search term
   const searchVocab = discoverIdentityVocab([searchTerm]);
   const searchTokens = tokenize(searchTerm, searchVocab);
-
-  function assignRelevance(groups: PricingGroup[]): void {
-    for (const g of groups) {
-      g.relevanceScore = computeRelevance(g, searchTokens);
-      assignRelevance(g.children);
-    }
+  for (const g of rootGroups) {
+    g.relevanceScore = computeRelevance(g, searchTokens);
   }
-  assignRelevance(rootGroups);
 
-  // Sort root groups by relevance desc, then count desc
   rootGroups.sort(
     (a, b) =>
       b.relevanceScore - a.relevanceScore || b.stats.count - a.stats.count,
   );
 
-  // Rate each active listing
+  // Rate each active listing against its model group
   const assessments = withTokens.map((listing) =>
     rateListing(listing, rootGroups),
   );
@@ -246,19 +214,19 @@ export function analysePricing(
 
 /**
  * Rate active listings against sold-data reference groups.
- * Clusters the sold corpus to build price stats, then matches each active
- * listing to the nearest sold group and rates it against that group's stats.
+ * Builds model-keyed groups from the sold corpus, then matches each active
+ * listing to its model group via the model gate and rates it.
  */
 export function analysePricingVsSold(
   activeRaw: RawListing[],
   soldRaw: RawListing[],
   searchTerm: string,
-  settings?: PricingSettings,
+  _settings?: PricingSettings,
 ): PricingResult {
   clearTokenizeCache();
-  resetClusterIdCounter();
+  resetGroupIdCounter();
 
-  // Parse both corpora and filter junk/excluded
+  // Parse both corpora
   const parsedSold = parseRawListings(soldRaw);
   const soldFiltered = parsedSold.filter((l) => !l.isJunk && !l.isExcluded);
 
@@ -291,7 +259,6 @@ export function analysePricingVsSold(
   const soldPrices = soldFiltered.map((l) => l.totalPrice);
   const vocab = discoverIdentityVocab(soldTitles, soldPrices);
 
-  // Cluster sold listings → reference price groups with stats
   const soldWithTokens = soldFiltered.map((l) => ({
     ...l,
     tokens: tokenize(l.title, vocab),
@@ -302,6 +269,7 @@ export function analysePricingVsSold(
   dbg("tokenize", "per-listing breakdown", () =>
     soldWithTokens.map((l) => ({
       title: l.title,
+      model: l.tokens.model,
       identity: l.tokens.identity,
       descriptors: l.tokens.descriptors,
       noise: [...l.tokens.noise],
@@ -309,35 +277,15 @@ export function analysePricingVsSold(
   );
   dbgGroupEnd();
 
-  const clusterOptions =
-    settings?.similarityThreshold !== undefined
-      ? { similarityThreshold: settings.similarityThreshold }
-      : undefined;
+  // Build flat model groups from sold corpus (for dashboard)
+  const rootGroups = buildModelGroups(soldWithTokens);
 
-  const rootGroups = clusterListings(soldWithTokens, clusterOptions);
-
-  dbgGroupStart("cluster", `sold corpus — ${rootGroups.length} root groups`);
-  dbg("cluster", "group summary", () =>
+  dbgGroupStart("match", `sold corpus — ${rootGroups.length} model groups`);
+  dbg("match", "group summary", () =>
     rootGroups.map((g) => ({
       groupId: g.id,
       label: g.label,
       memberCount: g.items.length,
-      depth: g.depth,
-      childCount: g.children.length,
-    }))
-  );
-  dbgGroupEnd();
-
-  for (const g of rootGroups) computeGroupStats(g);
-
-  dbgGroupStart("analyse", "sold corpus — group confidence");
-  dbg("analyse", "group confidence", () =>
-    rootGroups.map((g) => ({
-      groupLabel: g.label,
-      count: g.stats.count,
-      median: g.stats.median,
-      iqr: g.stats.iqr,
-      iqrRatio: g.stats.median > 0 ? g.stats.iqr / g.stats.median : null,
       confidence: g.confidence,
     }))
   );
@@ -346,27 +294,46 @@ export function analysePricingVsSold(
   // Relevance against the search term
   const searchVocab = discoverIdentityVocab([searchTerm]);
   const searchTokens = tokenize(searchTerm, searchVocab);
-
-  function assignRelevance(groups: PricingGroup[]): void {
-    for (const g of groups) {
-      g.relevanceScore = computeRelevance(g, searchTokens);
-      assignRelevance(g.children);
-    }
+  for (const g of rootGroups) {
+    g.relevanceScore = computeRelevance(g, searchTokens);
   }
-  assignRelevance(rootGroups);
   rootGroups.sort(
     (a, b) =>
       b.relevanceScore - a.relevanceScore || b.stats.count - a.stats.count,
   );
 
-  // Tokenize active listings with the sold vocab and rate against sold groups
+  // Tokenize active listings with the sold vocab and rate against model groups
   const activeWithTokens = activeFiltered.map((l) => ({
     ...l,
     tokens: tokenize(l.title, vocab),
   }));
-  const assessments = activeWithTokens.map((listing) =>
-    rateListingVsSold(listing, rootGroups),
-  );
+
+  const assessments: ListingAssessment[] = activeWithTokens.map((listing) => {
+    const comps = findComps(listing, soldWithTokens);
+    if (comps.length === 0) {
+      return {
+        listing,
+        rating: "no-data" as PriceRating,
+        matchedGroup: null,
+        percentile: null,
+        showBadge: false,
+      };
+    }
+
+    // Find the pre-built model group this listing belongs to (for dashboard linkage)
+    const group = matchToModelGroup(listing, rootGroups);
+    if (!group) {
+      return {
+        listing,
+        rating: "no-data" as PriceRating,
+        matchedGroup: null,
+        percentile: null,
+        showBadge: false,
+      };
+    }
+
+    return rateVsModelGroup(listing, group);
+  });
 
   dbgGroupStart("analyse", "active corpus (vs sold) — ratings");
   dbg("analyse", "per-listing rating", () =>

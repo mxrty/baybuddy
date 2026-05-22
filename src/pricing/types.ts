@@ -79,6 +79,3 @@ export interface PricingSettings {
   similarityThreshold?: number;
 }
 
-export interface ClusterOptions {
-  similarityThreshold?: number;
-}
