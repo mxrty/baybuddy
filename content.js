@@ -959,6 +959,7 @@
     if (!panel) {
       panel = document.createElement("div");
       panel.id = "bb-overview-panel";
+      panel.style.cssText = "position:fixed;right:16px;top:88px;width:320px;z-index:9999;font-family:'Inter',-apple-system,sans-serif;color:#161822;";
       needsAppend = true;
     }
     if (rootGroups.length === 0) {
@@ -967,15 +968,9 @@
     }
     const groupsHtml = rootGroups.map((g) => renderGroupCard(g, currency, 0)).join("");
     const rangeStr = summary.overallPriceRange.max > 0 ? `${fmtPrice2(summary.overallPriceRange.min, currency)}&ndash;${fmtPrice2(summary.overallPriceRange.max, currency)}` : "n/a";
-    panel.innerHTML = `<details style="margin:16px auto;background:rgba(54,101,243,0.05);border:1px solid rgba(54,101,243,0.2);border-radius:8px;font-family:'Inter',-apple-system,sans-serif;color:#161822;"><summary style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">&#x1F4CA;</span><span style="font-size:13px;font-weight:600;">Price Intelligence</span><span style="font-size:12px;color:#575b6e;">${summary.totalListingsAnalysed} items &middot; ${summary.totalGroups} groups</span></div><div style="display:flex;gap:16px;font-size:13px;align-items:center;"><span style="color:#575b6e;">Range: <strong style="color:#3665f3;">${rangeStr}</strong></span><span style="color:#3665f3;font-size:10px;">&#x25BC;</span></div></summary><div style="padding:0 16px 16px;font-size:12px;">${groupsHtml}</div></details>`;
+    panel.innerHTML = `<details style="background:#fff;border:1px solid rgba(54,101,243,0.2);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);"><summary style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;background:rgba(54,101,243,0.05);border-radius:8px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:16px;">&#x1F4CA;</span><span style="font-size:13px;font-weight:600;">Price Intelligence</span><span style="font-size:12px;color:#575b6e;">${summary.totalListingsAnalysed} items &middot; ${summary.totalGroups} groups</span></div><div style="display:flex;gap:16px;font-size:13px;align-items:center;"><span style="color:#575b6e;">Range: <strong style="color:#3665f3;">${rangeStr}</strong></span><span style="color:#3665f3;font-size:10px;">&#x25BC;</span></div></summary><div style="padding:0 16px 16px;font-size:12px;max-height:calc(100vh - 160px);overflow-y:auto;">${groupsHtml}</div></details>`;
     if (needsAppend) {
-      const resultsContainer = root.querySelector(".srp-results") || root.querySelector("#srp-river-results") || root.querySelector('[id*="ResultSet"]') || root.querySelector(".srp-river-main");
-      if (resultsContainer && resultsContainer.parentNode) {
-        resultsContainer.parentNode.insertBefore(panel, resultsContainer);
-      } else {
-        const main = root.querySelector("#mainContent") || root.querySelector("#srp-river") || root;
-        main.insertBefore(panel, main.firstChild);
-      }
+      document.body.appendChild(panel);
     }
   }
 
