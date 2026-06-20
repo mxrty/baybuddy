@@ -26,10 +26,6 @@ When viewing sold listings, displays a price analytics panel showing:
 - Visual price distribution histogram
 - Automatic currency detection
 
-### 📌 Sticky Filters
-
-Remembers your active filters (condition, price range, buying format, etc.) and re-applies them when you change your search query. No more losing your "Used" + "Buy It Now" filters every time you search for something new.
-
 ## Installation
 
 ### From Chrome Web Store

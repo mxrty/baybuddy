@@ -7,7 +7,6 @@
       { id: "hideCollectionOnly", key: "hideCollectionOnly", default: true },
       { id: "localItemsOnly", key: "localItemsOnly", default: true },
       { id: "priceBadges", key: "priceBadges", default: true },
-      { id: "stickyFilters", key: "stickyFilters", default: false },
       { id: "debugMode", key: "debugMode", default: false }
     ];
     const statusBar = document.getElementById("statusBar");

@@ -2,7 +2,6 @@ export interface Settings {
   hideCollectionOnly: boolean;
   localItemsOnly: boolean;
   priceBadges: boolean;
-  stickyFilters: boolean;
   debugMode: boolean;
 }
 

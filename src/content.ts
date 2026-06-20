@@ -44,27 +44,6 @@ import { fetchSoldListings } from "./pricing/soldFetch";
     /canada\s*post/i,
   ];
 
-  // ── Params that should NOT stick ────────────────────────
-  const NON_STICKY_PARAMS = new Set([
-    "_nkw",
-    "_pgn",
-    "_skc",
-    "_sop",
-    "_sacat",
-    "_dmd",
-    "_ipg",
-    "_fosrp",
-    "_fcid",
-    "_localstpos",
-    "LH_Complete",
-    "LH_Sold",
-    "LH_PrefLoc",
-    "_trksid",
-    "hash",
-    "rt",
-    "_from",
-  ]);
-
   // ══════════════════════════════════════════════════════════
   // FEATURE 1: Hide Collection Only
   // ══════════════════════════════════════════════════════════
@@ -448,74 +427,6 @@ import { fetchSoldListings } from "./pricing/soldFetch";
   }
 
   // ══════════════════════════════════════════════════════════
-  // FEATURE 5: Sticky Filters
-  // ══════════════════════════════════════════════════════════
-
-  const STICKY_STORAGE_KEY = "bb_stickyParams";
-
-  function getCurrentFilterParams() {
-    const url = new URL(window.location.href);
-    const params: Record<string, string> = {};
-    url.searchParams.forEach((value, key) => {
-      if (!NON_STICKY_PARAMS.has(key)) {
-        params[key] = value;
-      }
-    });
-    return params;
-  }
-
-  function saveStickyParams(params: Record<string, string>) {
-    try {
-      sessionStorage.setItem(STICKY_STORAGE_KEY, JSON.stringify(params));
-    } catch (e) {
-      // sessionStorage not available — silently fail
-    }
-  }
-
-  function loadStickyParams() {
-    try {
-      const raw = sessionStorage.getItem(STICKY_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function applyStickyFilters() {
-    const saved = loadStickyParams();
-    if (!saved || Object.keys(saved).length === 0) {
-      // Nothing saved yet — just save current params
-      saveStickyParams(getCurrentFilterParams());
-      return;
-    }
-
-    const url = new URL(window.location.href);
-    let changed = false;
-
-    // Re-inject saved params that are missing from the current URL
-    Object.entries(saved).forEach(([key, value]) => {
-      if (!url.searchParams.has(key)) {
-        url.searchParams.set(key, String(value));
-        changed = true;
-      }
-    });
-
-    // Save current params (merged) for next time
-    saveStickyParams(getCurrentFilterParams());
-
-    if (changed) {
-      // Guard: prevent redirect loop
-      const guardKey = "bb_stickyApplied";
-      if (sessionStorage.getItem(guardKey)) {
-        sessionStorage.removeItem(guardKey);
-        return;
-      }
-      sessionStorage.setItem(guardKey, "1");
-      window.location.replace(url.toString());
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════
   // MAIN — Initialisation
   // ══════════════════════════════════════════════════════════
 
@@ -524,16 +435,11 @@ import { fetchSoldListings } from "./pricing/soldFetch";
       hideCollectionOnly: true,
       localItemsOnly: true,
       priceBadges: true,
-      stickyFilters: false,
       debugMode: false,
     };
 
     chrome.storage.sync.get(defaultSettings, function (settings: Settings) {
       initDebug(settings.debugMode);
-      // Feature 5: Sticky Filters (must run before URL-modifying features)
-      if (settings.stickyFilters) {
-        applyStickyFilters();
-      }
 
       // Feature 2: Hide International (may redirect — run early)
       if (settings.localItemsOnly) {
