@@ -2,13 +2,7 @@
  * BayBuddy — Content Script
  */
 
-import { detectCurrency, Settings } from "./utils";
-import { initDebug, dbg } from "./debug";
-import { analysePricing, analysePricingVsSold } from "./pricing";
-import type { RawListing } from "./pricing";
-import { clearBadges, renderBadges } from "./ui/badge";
-import { renderDashboard } from "./ui/dashboard";
-import { fetchSoldListings } from "./pricing/soldFetch";
+import { Settings } from "./utils";
 
 (function () {
   "use strict";
@@ -295,138 +289,6 @@ import { fetchSoldListings } from "./pricing/soldFetch";
   }
 
   // ══════════════════════════════════════════════════════════
-  // FEATURE 4: Price Intelligence Badges
-  // ══════════════════════════════════════════════════════════
-
-  function collectRawListings(): RawListing[] {
-    const cards = getListingCards();
-    const raw: RawListing[] = [];
-    cards.forEach((card) => {
-      if (
-        card.classList &&
-        (card.classList.contains("s-item__pl-on-bottom") ||
-          card.classList.contains("s-card__pl-on-bottom"))
-      )
-        return;
-      const titleEl = card.querySelector(".s-item__title, .s-card__title");
-      const priceEl = card.querySelector(".s-item__price, .s-card__price");
-      const conditionSelectors = [
-        ".s-item__subtitle",
-        ".s-item__secondary-info",
-        ".SECONDARY_INFO",
-        ".s-card__subtitle",
-        ".s-item__condition",
-        ".s-card__attribute-row",
-      ];
-      const conditionText = conditionSelectors
-        .flatMap((sel) => Array.from(card.querySelectorAll(sel)))
-        .map((el) => el.textContent || "")
-        .join(" ")
-        .trim();
-      const linkEl = card.querySelector(
-        "a.s-item__link, a.s-card__link",
-      ) as HTMLAnchorElement | null;
-      if (!titleEl || !priceEl) return;
-      raw.push({
-        title: titleEl.textContent || "",
-        priceText: priceEl.textContent || "",
-        condition: conditionText,
-        link: linkEl?.href || linkEl?.getAttribute("href") || "",
-        deliveryText: getDeliveryText(card),
-      });
-    });
-    return raw;
-  }
-
-  let isApplyingPriceIntelligence = false;
-  let needsReapply = false;
-
-  async function applyPriceIntelligence(settings: Settings, retryCount = 0) {
-    if (isApplyingPriceIntelligence) {
-      needsReapply = true;
-      return;
-    }
-    isApplyingPriceIntelligence = true;
-
-    try {
-      const cards = getListingCards();
-
-      if (cards.length === 0 && retryCount < 5) {
-        isApplyingPriceIntelligence = false;
-        setTimeout(() => applyPriceIntelligence(settings, retryCount + 1), 500);
-        return;
-      }
-
-      const url = new URL(window.location.href);
-      const searchTerm = url.searchParams.get("_nkw") || "";
-      const viewingSold = isViewingSold();
-      const pricingSettings = {
-        enabled: true,
-      };
-      const root = document.documentElement as HTMLElement;
-
-      if (viewingSold) {
-        // Sold page: render page-1 DOM listings immediately, then expand with fetched pages 2–5
-        const rawListings = collectRawListings();
-        const immediateResult = analysePricing(rawListings, searchTerm, pricingSettings);
-        renderBadges(immediateResult, root);
-        renderDashboard(immediateResult, root);
-
-        if (searchTerm) {
-          dbg("content", "soldFetch start", () => ({ searchTerm, skipPage1: true }));
-          const _tSold = performance.now();
-          const moreSold = await fetchSoldListings(searchTerm, { skipPage1: true });
-          dbg("content", "soldFetch done", () => ({ searchTerm, count: moreSold.length, ms: (performance.now() - _tSold).toFixed(1) }));
-          if (moreSold.length > 0 && isStillSamePage(searchTerm, true)) {
-            const allSold = [...rawListings, ...moreSold];
-            const fullResult = analysePricing(allSold, searchTerm, pricingSettings);
-            clearBadges(root);
-            renderBadges(fullResult, root);
-            renderDashboard(fullResult, root);
-          }
-        }
-      } else {
-        // Active page: render immediately with active-vs-active, then upgrade vs sold comps
-        const rawListings = collectRawListings();
-        const immediateResult = analysePricing(rawListings, searchTerm, pricingSettings);
-        renderBadges(immediateResult, root);
-        renderDashboard(immediateResult, root);
-
-        if (searchTerm) {
-          dbg("content", "soldFetch start", () => ({ searchTerm }));
-          const _tFetch = performance.now();
-          const soldListings = await fetchSoldListings(searchTerm);
-          dbg("content", "soldFetch done", () => ({ searchTerm, count: soldListings.length, ms: (performance.now() - _tFetch).toFixed(1) }));
-          if (soldListings.length > 0 && isStillSamePage(searchTerm, false)) {
-            const vsoldResult = analysePricingVsSold(
-              collectRawListings(), // re-collect in case DOM updated during fetch
-              soldListings,
-              searchTerm,
-              pricingSettings,
-            );
-            clearBadges(root);
-            renderBadges(vsoldResult, root);
-            renderDashboard(vsoldResult, root);
-
-          }
-        }
-      }
-    } finally {
-      isApplyingPriceIntelligence = false;
-      if (needsReapply) {
-        needsReapply = false;
-        setTimeout(() => applyPriceIntelligence(settings), 50);
-      }
-    }
-  }
-
-  function isStillSamePage(expectedSearchTerm: string, expectedSold: boolean): boolean {
-    const url = new URL(window.location.href);
-    const currentTerm = url.searchParams.get("_nkw") || "";
-    return currentTerm === expectedSearchTerm && isViewingSold() === expectedSold;
-  }
-
-  // ══════════════════════════════════════════════════════════
   // MAIN — Initialisation
   // ══════════════════════════════════════════════════════════
 
@@ -434,21 +296,17 @@ import { fetchSoldListings } from "./pricing/soldFetch";
     const defaultSettings = {
       hideCollectionOnly: true,
       localItemsOnly: true,
-      priceBadges: true,
-      debugMode: false,
     };
 
     chrome.storage.sync.get(defaultSettings, function (settings: Settings) {
-      initDebug(settings.debugMode);
-
       // Feature 2: Hide International (may redirect — run early)
       if (settings.localItemsOnly) {
         applyLocalItemsOnly();
       }
 
-      if (settings.hideCollectionOnly || settings.priceBadges) {
-        if (settings.hideCollectionOnly) processAllCards();
-        if (settings.priceBadges) applyPriceIntelligence(settings);
+      // Feature 1: Hide Collection Only (re-run as eBay lazy-loads more cards)
+      if (settings.hideCollectionOnly) {
+        processAllCards();
 
         const resultsContainer =
           document.querySelector(".srp-results") ||
@@ -465,13 +323,8 @@ import { fetchSoldListings } from "./pricing/soldFetch";
                 node.nodeType === 1
                   ? (node as Element)
                   : (node.parentNode as Element);
-              if (
-                el &&
-                el.closest &&
-                el.closest(
-                  "#bb-overview-panel, .bb-badge-container, .bb-price-badge",
-                )
-              ) {
+              // Ignore our own hidden-count pill to avoid re-trigger loops
+              if (el && el.closest && el.closest("#bb-collection-hidden-pill")) {
                 continue;
               }
               hasNewNodes = true;
@@ -479,8 +332,7 @@ import { fetchSoldListings } from "./pricing/soldFetch";
             if (hasNewNodes) break;
           }
           if (hasNewNodes) {
-            if (settings.hideCollectionOnly) processAllCards();
-            if (settings.priceBadges) applyPriceIntelligence(settings);
+            processAllCards();
           }
         });
 

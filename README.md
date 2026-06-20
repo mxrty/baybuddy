@@ -1,6 +1,6 @@
 # 🐟 BayBuddy
 
-**Your smart eBay companion** — a Chrome extension that makes eBay search smarter with powerful filters, sold price analytics, and sticky search preferences.
+**Your smart eBay companion** — a Chrome extension that makes eBay search smarter with collection-only and location filters plus one-click sold-listing search.
 
 ![BayBuddy Icon](icons/icon128.png)
 
@@ -17,14 +17,6 @@ Automatically filters search results to show only items located in your country.
 ### 🔍 Search Sold Listings
 
 Floating on-page button to instantly switch between active and sold/completed listings with one click. Great for price research and market analysis.
-
-### 📊 Sold Price Stats
-
-When viewing sold listings, displays a price analytics panel showing:
-
-- Average, median, min, and max sold prices
-- Visual price distribution histogram
-- Automatic currency detection
 
 ## Installation
 

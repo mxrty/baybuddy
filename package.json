@@ -1,14 +1,12 @@
 {
   "name": "baybuddy",
-  "version": "0.1.0",
-  "description": "**Your smart eBay companion** — a Chrome extension that makes eBay search smarter with powerful filters, sold price analytics, and sticky search preferences.",
+  "version": "1.0.0",
+  "description": "**Your smart eBay companion** — a Chrome extension that makes eBay search smarter with collection-only and location filters plus one-click sold-listing search.",
   "main": "content.js",
   "scripts": {
     "test": "jest",
-    "test:pricing": "jest src/pricing",
-    "build": "esbuild src/content.ts --bundle --outfile=content.js && esbuild src/itm.ts --bundle --outfile=itm.js && esbuild src/popup.ts --bundle --outfile=popup.js && tailwindcss -i src/popup.css -o popup.css --minify",
+    "build": "esbuild src/content.ts --bundle --outfile=content.js && esbuild src/popup.ts --bundle --outfile=popup.js && tailwindcss -i src/popup.css -o popup.css --minify",
     "watch:content": "esbuild src/content.ts --bundle --outfile=content.js --watch",
-    "watch:itm": "esbuild src/itm.ts --bundle --outfile=itm.js --watch",
     "watch:popup": "esbuild src/popup.ts --bundle --outfile=popup.js --watch",
     "watch:css": "tailwindcss -i src/popup.css -o popup.css --watch",
     "format": "prettier --write src popup.html"

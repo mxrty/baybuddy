@@ -12,8 +12,6 @@ import { Settings } from "./utils";
   const SETTINGS: SettingDef[] = [
     { id: "hideCollectionOnly", key: "hideCollectionOnly", default: true },
     { id: "localItemsOnly", key: "localItemsOnly", default: true },
-    { id: "priceBadges", key: "priceBadges", default: true },
-    { id: "debugMode", key: "debugMode", default: false },
   ];
 
   const statusBar = document.getElementById("statusBar")!;
@@ -60,10 +58,8 @@ import { Settings } from "./utils";
 
   // ── Status bar ──────────────────────────────────────────
   function updateStatus(settings: Settings) {
-    const activeCount = SETTINGS.filter(
-      (s) => s.key !== "debugMode" && settings[s.key],
-    ).length;
-    const total = SETTINGS.length - 1;
+    const activeCount = SETTINGS.filter((s) => settings[s.key]).length;
+    const total = SETTINGS.length;
 
     if (activeCount > 0) {
       statusBar.classList.remove("inactive");

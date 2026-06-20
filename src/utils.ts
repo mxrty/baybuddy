@@ -1,8 +1,6 @@
 export interface Settings {
   hideCollectionOnly: boolean;
   localItemsOnly: boolean;
-  priceBadges: boolean;
-  debugMode: boolean;
 }
 
 export function detectCurrency(host: string): string {
